@@ -24,6 +24,8 @@ data class Scene(
     val text: String,
     val mediaId: String? = null,   // null 이면 기본 배경
     val size: SubSize = SubSize.NORMAL,
+    val myVoice: String? = null,   // 내 목소리 녹음 파일(앱 내부 wav, 앞뒤 무음 다듬고 크기 맞춤). null 이면 녹음 없음
+    val myVoiceMs: Long = 0,
 )
 
 data class VoiceChoice(val name: String, val label: String, val needsNetwork: Boolean)
@@ -32,8 +34,12 @@ enum class Speed(val label: String, val rate: Float) { SLOW("느리게", 0.8f), 
 
 data class MusicChoice(val uri: String, val label: String, val durationMs: Long)
 
+enum class VoiceMode { AI, MINE }
+
 /** 만들고 있는 작품 한 편(앱을 켜 두는 동안만 유지). */
 data class Project(
+    val id: String = java.util.UUID.randomUUID().toString(),   // 녹음 폴더 이름
+    val voiceMode: VoiceMode = VoiceMode.AI,
     val rawText: String = "",
     val scenes: List<Scene> = emptyList(),
     val voice: VoiceChoice? = null,
@@ -47,6 +53,9 @@ data class Project(
     val headerSource: String = "",     // 출처 줄(선택, 예: 시편 23:1)
 ) {
     val template: VideoTemplate get() = Templates.byId(templateId)
+
+    val recordedCount: Int get() = scenes.count { it.myVoice != null }
+    val missingCount: Int get() = scenes.size - recordedCount
 
     val title: String get() = scenes.firstOrNull()?.text?.take(24) ?: "묵상 영상"
 

@@ -3,6 +3,9 @@
 
     <!-- Pexels 영상 검색·내려받기(키를 입력했을 때만 사용) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 내 목소리 녹음(문장별 녹음). 녹음은 앱 내부에만 저장하고 외부로 보내지 않는다 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <!-- 앱 안 업데이트: 받은 APK 의 시스템 설치 화면을 열기 위해(자동 설치 아님) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

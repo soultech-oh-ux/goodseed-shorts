@@ -118,6 +118,7 @@ private fun SceneEditor(vm: AppViewModel, s: Scene, onClose: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = text, onValueChange = { text = it; vm.updateScene(s.id) { sc -> sc.copy(text = it) } }, modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 28.sp), label = { Text("글자 (자막과 낭독에 모두 쓰입니다)") })
+                if (vm.project.scenes.firstOrNull { it.id == s.id }?.myVoice != null) Note("이 문장에는 내 목소리 녹음이 있습니다. 글을 고치면 이 문장의 녹음이 지워져 다시 녹음해야 합니다.", Warn)
                 Text("자막 크기", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SubSize.entries.forEach { z -> ChoiceChip(z.label, s.size == z, { vm.updateScene(s.id) { it.copy(size = z) } }, Modifier.weight(1f)) }

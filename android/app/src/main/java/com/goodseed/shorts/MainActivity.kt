@@ -27,6 +27,8 @@ fun AppRoot(vm: AppViewModel) {
         Screen.PASTE -> PasteScreen(vm)
         Screen.TEMPLATE -> TemplateScreen(vm)
         Screen.VOICE -> VoiceScreen(vm)
+        Screen.RECORD -> RecordScreen(vm)
+        Screen.ALIGN -> AlignScreen(vm)
         Screen.MEDIA -> MediaScreen(vm)
         Screen.PREVIEW -> PreviewScreen(vm)
         Screen.EXPORT -> ExportScreen(vm)

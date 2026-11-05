@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Check
 import com.goodseed.shorts.Screen
 import com.goodseed.shorts.data.RecentWork
 import com.goodseed.shorts.data.Speed
+import com.goodseed.shorts.data.VoiceMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -180,35 +181,49 @@ fun PasteScreen(vm: AppViewModel) {
 fun VoiceScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { vm.loadVoices() }
-    StepScaffold(4, "목소리를 고르세요", onBack = { vm.back() }, primaryText = "다음: 배경과 음악",
-        primaryEnabled = vm.voicesState == "ready" && vm.project.voice != null, onPrimary = { vm.go(Screen.MEDIA) }) {
-        Text("읽는 속도", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Speed.entries.forEach { s -> ChoiceChip(s.label, vm.project.speed == s, { vm.chooseSpeed(s) }, Modifier.weight(1f)) }
+    val p = vm.project
+    val mine = p.voiceMode == VoiceMode.MINE
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importVoiceFile(uri) }
+    val ready = if (mine) p.recordedCount > 0 && !vm.voiceImport.busy else vm.voicesState == "ready" && p.voice != null
+    StepScaffold(4, "목소리를 고르세요", onBack = { vm.back() }, primaryText = "다음: 배경과 음악", primaryEnabled = ready, onPrimary = { vm.voiceNext() }) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+            ChoiceChip("AI 목소리", !mine, { vm.setVoiceMode(VoiceMode.AI) }, Modifier.weight(1f))
+            ChoiceChip("내 목소리", mine, { vm.setVoiceMode(VoiceMode.MINE) }, Modifier.weight(1f))
         }
-        Spacer(Modifier.height(8.dp))
-        when (vm.voicesState) {
-            "loading" -> Note("폰의 음성 목록을 불러오는 중…")
-            "none" -> {
-                Note("이 폰에서 한국어 음성을 찾지 못했습니다. 폰 설정의 '텍스트 음성 변환'에서 한국어 음성을 설치한 뒤 다시 들어오세요.", Warn)
-                Spacer(Modifier.height(8.dp))
-                BigButton("음성 설정 열기", onClick = { openTtsSettings(ctx) }, modifier = Modifier.fillMaxWidth(), filled = false)
-            }
-            else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(vm.voices, key = { it.name }) { v ->
-                    val sel = vm.project.voice?.name == v.name
-                    SoftCard(Modifier.fillMaxWidth(), onClick = { vm.chooseVoice(v) }, color = if (sel) AccentSoft else CardColor) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(v.label, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                                if (sel) Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Check, null, tint = Accent, modifier = Modifier.size(20.dp))
-                                    Text(" 선택됨", fontSize = 16.sp, color = Accent, fontWeight = FontWeight.Bold)
-                                }
-                                if (v.needsNetwork) Text("인터넷이 없으면 영상을 만들 수 없습니다", fontSize = 14.sp, color = Warn)
+        if (mine) MyVoicePanel(vm, onPickFile = { picker.launch(arrayOf("audio/*", "video/mp4", "application/ogg")) })
+        else AiVoicePanel(vm, ctx)
+    }
+    if (vm.voiceFillAsk) FillMissingDialog(vm)
+}
+
+@Composable
+private fun ColumnScope.AiVoicePanel(vm: AppViewModel, ctx: Context) {
+    Text("읽는 속도", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Speed.entries.forEach { s -> ChoiceChip(s.label, vm.project.speed == s, { vm.chooseSpeed(s) }, Modifier.weight(1f)) }
+    }
+    Spacer(Modifier.height(8.dp))
+    when (vm.voicesState) {
+        "loading" -> Note("폰의 음성 목록을 불러오는 중…")
+        "none" -> {
+            Note("이 폰에서 한국어 음성을 찾지 못했습니다. 폰 설정의 '텍스트 음성 변환'에서 한국어 음성을 설치한 뒤 다시 들어오세요. (또는 위의 [내 목소리]로 직접 녹음할 수 있습니다.)", Warn)
+            Spacer(Modifier.height(8.dp))
+            BigButton("음성 설정 열기", onClick = { openTtsSettings(ctx) }, modifier = Modifier.fillMaxWidth(), filled = false)
+        }
+        else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(vm.voices, key = { it.name }) { v ->
+                val sel = vm.project.voice?.name == v.name
+                SoftCard(Modifier.fillMaxWidth(), onClick = { vm.chooseVoice(v) }, color = if (sel) AccentSoft else CardColor) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(v.label, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                            if (sel) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Check, null, tint = Accent, modifier = Modifier.size(20.dp))
+                                Text(" 선택됨", fontSize = 16.sp, color = Accent, fontWeight = FontWeight.Bold)
                             }
-                            BigButton("들어보기", onClick = { vm.chooseVoice(v); vm.previewVoice() }, filled = false, icon = Icons.Filled.PlayArrow)
+                            if (v.needsNetwork) Text("인터넷이 없으면 영상을 만들 수 없습니다", fontSize = 14.sp, color = Warn)
                         }
+                        BigButton("들어보기", onClick = { vm.chooseVoice(v); vm.previewVoice() }, filled = false, icon = Icons.Filled.PlayArrow)
                     }
                 }
             }

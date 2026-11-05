@@ -108,6 +108,32 @@ class UpdatePickTest {
         assertNull(UpdatePick.pick("[1,2,\"x\"]", cur))
     }
 
+    // 0.3.0: 0.2.0 앱에서 새 버전 안내가 실제로 뜨는 조건(태그 vX.Y.Z + apk/sha256 자산 이름 규칙)
+    @Test fun version030IsOfferedTo020ButNotTo030() {
+        val lst = list(rel("v0.2.0"), rel("v0.3.0"))
+        val info = UpdatePick.pick(lst, Semver(0, 2, 0))!!
+        assertEquals(Semver(0, 3, 0), info.version)
+        assertEquals("goodseed-shorts-0.3.0.apk", info.apkName)
+        assertNull(UpdatePick.pick(lst, Semver(0, 3, 0)))
+        assertNull(UpdatePick.pick(lst, Semver(0, 3, 1)))
+    }
+
+    @Test fun builtAppVersionMatchesTheReleaseRule() {
+        assertEquals("0.3.0", BuildConfig.VERSION_NAME)
+        assertEquals(3, BuildConfig.VERSION_CODE)
+        val cur = Semver.parse(BuildConfig.VERSION_NAME)!!
+        assertTrue(cur > Semver(0, 2, 0))
+        assertEquals("goodseed-shorts-${cur}.apk", "goodseed-shorts-0.3.0.apk")
+    }
+
+    @Test fun whatsNewFor030MentionsMyVoice() {
+        val n = WhatsNew.notesFor("0.3.0")
+        assertTrue(n.size >= 4)
+        assertTrue(n.any { it.contains("내 목소리") })
+        assertTrue(WhatsNew.shouldShow("0.2.0", "0.3.0", true))
+        assertFalse(WhatsNew.shouldShow("0.3.0", "0.3.0", true))
+    }
+
     private object UpdatePick {
         fun pick(json: String, cur: Semver, shaText: (String) -> String? = { "${"a".repeat(64)}  x.apk" }) = UpdateLogic.pick(json, cur, shaText)
     }
