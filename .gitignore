@@ -1,0 +1,16 @@
+# 서명 키·비밀번호는 절대 커밋하지 않는다
+android/keystore/
+android/keystore.properties
+*.jks
+*.keystore
+# 빌드 산출물
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.idea/
+*.iml
+.cxx/
+captures/
+# 배포 파일(APK)은 저장소가 아니라 릴리스 자산으로
+dist/
