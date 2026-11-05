@@ -26,6 +26,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.goodseed.shorts.AppViewModel
+import com.goodseed.shorts.UpdPhase
+import com.goodseed.shorts.render.Templates
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Check
 import com.goodseed.shorts.Screen
 import com.goodseed.shorts.data.RecentWork
 import com.goodseed.shorts.data.Speed
@@ -37,28 +46,53 @@ import java.util.Locale
 @Composable
 fun HomeScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize().background(Paper).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(20.dp))
-        Text("굿씨드 묵상숏츠", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = GreenDark)
-        Text("글을 붙여넣으면 낭독과 자막이 있는 세로 영상이 됩니다.", fontSize = 17.sp, color = Muted, modifier = Modifier.padding(top = 6.dp))
-        Spacer(Modifier.height(24.dp))
-        BigButton("새 묵상 영상 만들기", onClick = { vm.startNew() }, modifier = Modifier.fillMaxWidth().height(110.dp))
-        SectionTitle("최근 작품")
-        if (vm.recents.isEmpty()) {
-            Note("아직 만든 영상이 없습니다. 위 버튼을 눌러 첫 영상을 만들어 보세요.")
-        } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }) }
+    var about by remember { mutableStateOf(false) }
+    val u = vm.update
+    val showBanner = u.info != null && !u.bannerHidden && u.phase != UpdPhase.IDLE
+    LazyColumn(
+        Modifier.fillMaxSize().background(PageBrush).statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            Text("굿씨드 묵상숏츠", fontSize = 32.sp, fontFamily = LocalUiFont.current, fontWeight = FontWeight.ExtraBold, color = AccentDark)
+            Text("글을 붙여넣으면 낭독과 자막이 있는 세로 영상이 됩니다.", fontSize = 17.sp, color = Muted, modifier = Modifier.padding(top = 6.dp))
+        }
+        if (showBanner) item { UpdateBanner(vm) }
+        item { BigButton("새 묵상 영상 만들기", onClick = { vm.startNew() }, modifier = Modifier.fillMaxWidth().height(96.dp), icon = Icons.Filled.Add) }
+        item {
+            SectionTitle("영상 스타일")
+            Note("마음에 드는 스타일을 누르면 그 스타일로 바로 시작합니다.")
+            Spacer(Modifier.height(10.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(end = 8.dp, bottom = 8.dp)) {
+                items(Templates.ALL, key = { it.id }) { t ->
+                    SoftCard(Modifier.width(132.dp), onClick = { vm.startNew(t.id) }) {
+                        TemplateThumb(t, HOME_SAMPLE, "", "", Modifier.fillMaxWidth().aspectRatio(9f / 16f))
+                        Text(t.name, fontSize = 17.sp, fontFamily = LocalUiFont.current, fontWeight = FontWeight.Bold, color = Ink, modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp), maxLines = 1)
+                    }
+                }
             }
         }
-        if (vm.recents.isEmpty()) Spacer(Modifier.weight(1f))
-        var about by remember { mutableStateOf(false) }
-        TextButton(onClick = { about = true }, modifier = Modifier.align(Alignment.CenterHorizontally).heightIn(min = 52.dp)) {
-            Text("굿씨드AI연구소 · 정보와 라이선스", fontSize = 15.sp, color = Muted)
+        item { SectionTitle("최근 작품") }
+        if (vm.recents.isEmpty()) item { Note("아직 만든 영상이 없습니다. 위 버튼을 눌러 첫 영상을 만들어 보세요.") }
+        else items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }) }
+        item {
+            Spacer(Modifier.height(8.dp))
+            if (!showBanner && u.message.isNotBlank()) Note(u.message, if (u.message.startsWith("새 버전을 확인하지")) Warn else Muted)
+            BigButton(if (u.checking) "확인하는 중…" else "업데이트 확인", onClick = { vm.checkUpdate(manual = true) }, enabled = !u.checking && u.phase != UpdPhase.DOWNLOADING,
+                modifier = Modifier.fillMaxWidth(), filled = false, icon = Icons.Filled.Refresh)
+            Note("지금 버전 ${com.goodseed.shorts.BuildConfig.VERSION_NAME}")
+            TextButton(onClick = { about = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Text("굿씨드AI연구소 · 정보와 라이선스", fontSize = 15.sp, color = Muted)
+            }
+            Spacer(Modifier.height(12.dp))
         }
-        if (about) AboutDialog { about = false }
     }
+    if (about) AboutDialog { about = false }
+    UpdateDialogs(vm)
 }
+
+const val HOME_SAMPLE = "주님은 나의 목자시니 부족함이 없으리로다."
 
 @Composable
 private fun AboutDialog(onClose: () -> Unit) {
@@ -69,9 +103,9 @@ private fun AboutDialog(onClose: () -> Unit) {
         }
     }
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
-        Surface(shape = RoundedCornerShape(20.dp), color = Paper) {
+        Surface(shape = RoundedCornerShape(20.dp), color = PageBg) {
             Column(Modifier.padding(18.dp).heightIn(max = 640.dp)) {
-                Text("굿씨드 묵상숏츠 ${com.goodseed.shorts.BuildConfig.VERSION_NAME}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                Text("굿씨드 묵상숏츠 ${com.goodseed.shorts.BuildConfig.VERSION_NAME}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AccentDark)
                 Text("굿씨드AI연구소", fontSize = 17.sp, modifier = Modifier.padding(top = 4.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 8.dp)) {
                     Text("자막 글꼴은 SIL Open Font License 1.1 로 배포되는 오픈 폰트이며 앱에 포함되어 있습니다. 영상 검색(선택)의 자료는 Pexels 가 제공합니다(Provided by Pexels). 권리를 확인한 자료만 쓰세요.", fontSize = 16.sp, lineHeight = 22.sp)
@@ -88,15 +122,17 @@ private fun AboutDialog(onClose: () -> Unit) {
 @Composable
 private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit) {
     val thumb = remember(w.thumbPath) { runCatching { android.graphics.BitmapFactory.decodeFile(w.thumbPath)?.asImageBitmap() }.getOrNull() }
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White).clickable(onClick = onOpen).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(54.dp).height(96.dp).clip(RoundedCornerShape(8.dp)).background(GreenSoft)) {
-            if (thumb != null) androidx.compose.foundation.Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    SoftCard(Modifier.fillMaxWidth(), onClick = onOpen) {
+        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(54.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(AccentSoft)) {
+                if (thumb != null) androidx.compose.foundation.Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(w.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(w.savedAtMillis)), fontSize = 15.sp, color = Muted)
+            }
+            BigButton("공유", onClick = onShare, filled = false, icon = Icons.Filled.Share)
         }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(w.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-            Text(SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(w.savedAtMillis)), fontSize = 15.sp, color = Muted)
-        }
-        OutlinedButton(onClick = onShare, modifier = Modifier.heightIn(min = 56.dp), border = BorderStroke(2.dp, Green)) { Text("공유", fontSize = 17.sp, color = GreenDark) }
     }
 }
 
@@ -106,8 +142,8 @@ fun PasteScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     var text by remember { mutableStateOf(vm.project.rawText) }
     val sentences = remember(text) { vm.sentencesOf(text) }
-    StepScaffold(2, "글을 붙여넣으세요", onBack = { vm.back() }, primaryText = "다음: 목소리 고르기", primaryEnabled = sentences.isNotEmpty(),
-        onPrimary = { vm.acceptText(text); vm.go(Screen.VOICE) }) {
+    StepScaffold(2, "글을 붙여넣으세요", onBack = { vm.back() }, primaryText = "다음: 스타일 고르기", primaryEnabled = sentences.isNotEmpty(),
+        onPrimary = { vm.acceptText(text); vm.go(Screen.TEMPLATE) }) {
         ScrollBody {
             OutlinedTextField(
                 value = text, onValueChange = { text = it },
@@ -123,13 +159,13 @@ fun PasteScreen(vm: AppViewModel) {
             Spacer(Modifier.height(10.dp))
             if (sentences.isEmpty()) Note("글을 넣으면 문장마다 한 장면으로 나뉩니다.")
             else {
-                Text("${sentences.size}개 장면으로 나뉩니다", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                Text("${sentences.size}개 장면으로 나뉩니다", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = AccentDark)
                 Note("한 문장이 자막 한 장, 낭독 한 구간이 됩니다. 마침표·물음표·느낌표와 줄바꿈에서 나뉩니다.")
                 if (sentences.size > 30) Note("장면이 ${sentences.size}개로 많습니다. 영상이 길어지고 만드는 시간도 오래 걸립니다.", Warn)
                 Spacer(Modifier.height(6.dp))
                 sentences.take(6).forEachIndexed { i, s ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).padding(10.dp)) {
-                        Text("${i + 1}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Green, modifier = Modifier.width(30.dp))
+                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(CardColor).padding(12.dp)) {
+                        Text("${i + 1}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Accent, modifier = Modifier.width(30.dp))
                         Text(s, fontSize = 17.sp)
                     }
                 }
@@ -144,7 +180,7 @@ fun PasteScreen(vm: AppViewModel) {
 fun VoiceScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { vm.loadVoices() }
-    StepScaffold(3, "목소리를 고르세요", onBack = { vm.back() }, primaryText = "다음: 배경과 음악",
+    StepScaffold(4, "목소리를 고르세요", onBack = { vm.back() }, primaryText = "다음: 배경과 음악",
         primaryEnabled = vm.voicesState == "ready" && vm.project.voice != null, onPrimary = { vm.go(Screen.MEDIA) }) {
         Text("읽는 속도", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp, bottom = 6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -161,19 +197,17 @@ fun VoiceScreen(vm: AppViewModel) {
             else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(vm.voices, key = { it.name }) { v ->
                     val sel = vm.project.voice?.name == v.name
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (sel) GreenSoft else Color.White)
-                            .then(if (sel) Modifier.background(GreenSoft) else Modifier)
-                            .clickable { vm.chooseVoice(v) }.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(v.label, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-                            if (sel) Text("✔ 선택됨", fontSize = 16.sp, color = Green, fontWeight = FontWeight.Bold)
-                            if (v.needsNetwork) Text("인터넷이 없으면 영상을 만들 수 없습니다", fontSize = 14.sp, color = Warn)
-                        }
-                        OutlinedButton(onClick = { vm.chooseVoice(v); vm.previewVoice() }, modifier = Modifier.heightIn(min = 56.dp), border = BorderStroke(2.dp, Green)) {
-                            Text("▶ 들어보기", fontSize = 17.sp, color = GreenDark)
+                    SoftCard(Modifier.fillMaxWidth(), onClick = { vm.chooseVoice(v) }, color = if (sel) AccentSoft else CardColor) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(v.label, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                                if (sel) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Check, null, tint = Accent, modifier = Modifier.size(20.dp))
+                                    Text(" 선택됨", fontSize = 16.sp, color = Accent, fontWeight = FontWeight.Bold)
+                                }
+                                if (v.needsNetwork) Text("인터넷이 없으면 영상을 만들 수 없습니다", fontSize = 14.sp, color = Warn)
+                            }
+                            BigButton("들어보기", onClick = { vm.chooseVoice(v); vm.previewVoice() }, filled = false, icon = Icons.Filled.PlayArrow)
                         }
                     }
                 }

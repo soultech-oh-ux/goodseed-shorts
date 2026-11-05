@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.GoodseedShorts" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#FFFFFF</item>
-        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:statusBarColor">#FAF9FF</item>
+        <item name="android:navigationBarColor">#FAF9FF</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowBackground">#FFFBF5</item>
+        <item name="android:windowBackground">#FAF9FF</item>
     </style>
 </resources>

@@ -15,6 +15,7 @@ import androidx.media3.transformer.Transformer
 import com.goodseed.shorts.data.*
 import com.goodseed.shorts.logic.*
 import com.goodseed.shorts.render.*
+import com.goodseed.shorts.data.UpdateManager
 import com.goodseed.shorts.tts.VoiceSynth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,7 +26,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-enum class Screen { HOME, PASTE, VOICE, MEDIA, PREVIEW, EXPORT }
+enum class Screen { HOME, PASTE, TEMPLATE, VOICE, MEDIA, PREVIEW, EXPORT }
 
 enum class Phase { IDLE, NARRATION, RENDER, SAVING, DONE, ERROR }
 
@@ -35,6 +36,18 @@ data class ExportUi(
     val message: String = "",
     val resultUri: String? = null,
     val resultTitle: String = "",
+)
+
+enum class UpdPhase { IDLE, AVAILABLE, DOWNLOADING, READY, ERROR, NEED_PERMISSION }
+
+data class UpdateUi(
+    val info: UpdateInfo? = null,
+    val phase: UpdPhase = UpdPhase.IDLE,
+    val percent: Int = 0,
+    val message: String = "",          // 진행·오류·수동 확인 결과 문구
+    val bannerHidden: Boolean = false, // [나중에]
+    val showHowTo: Boolean = false,
+    val checking: Boolean = false,
 )
 
 data class PexelsUi(val busy: Boolean = false, val message: String = "", val results: List<PexelsVideoItem> = emptyList())
@@ -56,9 +69,97 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var pexelsKey by mutableStateOf(prefs.getString("pexelsKey", "").orEmpty())
     var pexels by mutableStateOf(PexelsUi())
     var notice by mutableStateOf<String?>(null)
+    var update by mutableStateOf(UpdateUi())
+    var whatsNew by mutableStateOf<List<String>?>(null)    // 업데이트 후 첫 실행 안내(없으면 null)
+
+    private val updater = UpdateManager(ctx)
+    private val currentVersion: Semver = Semver.parse(BuildConfig.VERSION_NAME) ?: Semver(0, 0, 0)
+    private val cancelDownload = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var downloadedApk: File? = null
+
+    init { if (startupChecks) afterStart() }
+
+    companion object {
+        /** 시험에서 끈다(시작할 때의 네트워크 확인·첫 실행 안내를 하지 않게). */
+        @Volatile var startupChecks = true
+    }
 
     private var exportJob: Job? = null
     private var transformer: Transformer? = null
+
+    // ---------- 새 버전 안내·업데이트 ----------
+    private fun today(): String = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+
+    /** 앱 시작: ①업데이트 후 첫 실행 안내 ②하루 한 번 새 버전 확인(소리 없이). */
+    private fun afterStart() {
+        val cur = BuildConfig.VERSION_NAME
+        val wasUpdated = runCatching {
+            val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+            pi.lastUpdateTime - pi.firstInstallTime > 60_000L
+        }.getOrDefault(false)
+        if (WhatsNew.shouldShow(prefs.getString("lastRunVersion", null), cur, wasUpdated)) whatsNew = WhatsNew.notesFor(cur)
+        prefs.edit().putString("lastRunVersion", cur).apply()
+        val pending = prefs.getBoolean("updPending", false)
+        if (UpdateLogic.shouldAutoCheck(prefs.getString("updLastDay", null), today()) || pending) checkUpdate(manual = false)
+    }
+
+    fun dismissWhatsNew() { whatsNew = null }
+
+    /** manual=false: 결과가 없거나 실패해도 아무 표시도 하지 않는다. manual=true([업데이트 확인] 버튼): 결과를 문구로 알린다. */
+    fun checkUpdate(manual: Boolean) {
+        if (update.checking || update.phase == UpdPhase.DOWNLOADING) return
+        update = update.copy(checking = true, message = if (manual) "새 버전을 확인하는 중…" else update.message)
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { updater.check(currentVersion) }
+            if (r.reached) prefs.edit().putString("updLastDay", today()).apply()
+            val info = r.info
+            if (info != null) {
+                val dismissedToday = prefs.getString("updDismissed", null) == "${info.version}@${today()}"
+                prefs.edit().putBoolean("updPending", !dismissedToday).apply()
+                update = update.copy(info = info, phase = if (update.phase == UpdPhase.IDLE || update.phase == UpdPhase.ERROR) UpdPhase.AVAILABLE else update.phase,
+                    checking = false, bannerHidden = if (manual) false else dismissedToday, message = "")
+            } else {
+                prefs.edit().putBoolean("updPending", false).apply()
+                update = update.copy(checking = false, message = if (!manual) "" else if (r.reached) "지금 쓰는 버전(${currentVersion})이 가장 새 버전입니다." else "새 버전을 확인하지 못했습니다. 인터넷 연결을 확인해 주세요.")
+            }
+        }
+    }
+
+    fun laterUpdate() {
+        update.info?.let { prefs.edit().putString("updDismissed", "${it.version}@${today()}").putBoolean("updPending", false).apply() }
+        update = update.copy(bannerHidden = true)
+    }
+
+    fun showUpdateHowTo(show: Boolean) { update = update.copy(showHowTo = show) }
+    fun closePermissionGuide() { update = update.copy(phase = UpdPhase.AVAILABLE, message = "") }
+    fun openInstallSettings() { updater.openInstallPermissionSettings(); closePermissionGuide() }
+    fun openReleasePage() { updater.openUrl(update.info?.pageUrl ?: UpdateLogic.RELEASES_PAGE) }
+
+    /** [업데이트]: 설치 허용 확인 → 받기(진행률) → sha256 검증 → 시스템 설치 화면. 사용자의 누름 없이는 시작하지 않는다. */
+    fun startUpdate() {
+        val info = update.info ?: return
+        if (update.phase == UpdPhase.DOWNLOADING) return
+        if (update.phase == UpdPhase.READY) { downloadedApk?.takeIf { it.isFile }?.let { if (updater.openInstaller(it)) return } }
+        if (!updater.canInstall()) { update = update.copy(phase = UpdPhase.NEED_PERMISSION, message = ""); return }
+        cancelDownload.set(false)
+        update = update.copy(phase = UpdPhase.DOWNLOADING, percent = 0, message = "새 버전을 받는 중입니다…")
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { updater.download(info, { cancelDownload.get() }, { pct -> update = update.copy(percent = pct) }) }
+            when (r) {
+                is UpdateManager.Download.Ready -> {
+                    downloadedApk = r.file
+                    val opened = updater.openInstaller(r.file)
+                    update = update.copy(phase = if (opened) UpdPhase.READY else UpdPhase.ERROR, percent = 100,
+                        message = if (opened) "설치 화면이 열립니다. 화면의 [업데이트] 또는 [설치]를 눌러 주세요." else "설치 화면을 열지 못했습니다. [업데이트 방법]의 직접 받기를 이용해 주세요.")
+                }
+                UpdateManager.Download.HashMismatch -> update = update.copy(phase = UpdPhase.ERROR, message = "받은 파일이 올바르지 않아 설치하지 않았습니다. 잠시 뒤 다시 시도하거나 직접 받아 주세요.")
+                UpdateManager.Download.Cancelled -> update = update.copy(phase = UpdPhase.AVAILABLE, message = "")
+                is UpdateManager.Download.Failed -> update = update.copy(phase = UpdPhase.ERROR, message = "받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러 주세요.")
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() { cancelDownload.set(true) }
 
     // ---------- 화면 이동 ----------
     fun go(s: Screen) { synth.stopPreview(); screen = s }
@@ -66,7 +167,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         synth.stopPreview()
         screen = when (screen) {
             Screen.PASTE -> Screen.HOME
-            Screen.VOICE -> Screen.PASTE
+            Screen.TEMPLATE -> Screen.PASTE
+            Screen.VOICE -> Screen.TEMPLATE
             Screen.MEDIA -> Screen.VOICE
             Screen.PREVIEW -> Screen.MEDIA
             Screen.EXPORT -> if (export.phase == Phase.RENDER || export.phase == Phase.NARRATION || export.phase == Phase.SAVING) Screen.EXPORT else Screen.PREVIEW
@@ -74,8 +176,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startNew() {
-        project = Project(); export = ExportUi(); pexels = PexelsUi(); go(Screen.PASTE)
+    /** 홈에서 템플릿을 먼저 골랐을 때(또는 마지막으로 쓴 템플릿)부터 시작한다. */
+    fun startNew(templateId: String? = null) {
+        val t = Templates.byId(templateId ?: lastTemplateId)
+        project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); go(Screen.PASTE)
     }
 
     // ---------- ② 글 ----------
@@ -165,6 +269,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteScene(id: Long) { project = project.copy(scenes = project.scenes.filterNot { it.id == id }) }
     fun setFont(f: SubFont) { project = project.copy(font = f) }
 
+    // ---------- 템플릿 ----------
+    private val lastTemplateId: String get() = prefs.getString("templateId", Templates.DEFAULT.id).orEmpty()
+
+    /** 템플릿을 고르면 그 템플릿의 기본 글꼴도 따라간다(이후 글꼴만 따로 바꿀 수 있다). */
+    fun chooseTemplate(id: String) {
+        val t = Templates.byId(id)
+        project = project.copy(templateId = t.id, font = t.font)
+        prefs.edit().putString("templateId", t.id).apply()
+    }
+    fun setHeader(title: String, source: String) { project = project.copy(headerTitle = title, headerSource = source) }
+
     // ---------- ⑥ 저장 ----------
     fun cancelExport() {
         transformer?.cancel(); exportJob?.cancel()
@@ -200,11 +315,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (durs.any { it <= 0L }) { export = ExportUi(Phase.ERROR, 0, "낭독 파일 형식을 읽지 못했습니다. 다른 음성을 골라 다시 해 주세요."); return }
         val times = Timing.scenes(durs)
         // 2) 장면 길이에 맞춘 낭독 파일(앞뒤 무음)
+        val tpl = p.template
+        val endTexts = if (tpl.endCard != null) FrameComposer.endCardTexts(p.headerTitle, p.headerSource) else null
+        val endUs = if (endTexts != null) tpl.endCard!!.durationMs * 1000L else 0L
         val padded = ArrayList<File>()
         withContext(Dispatchers.IO) {
             for ((i, f) in raws.withIndex()) {
                 val dst = File(outDir, "scene_$i.wav")
-                val r = WavPad.pad(f, dst, Timing.LEAD_US, times[i].durationUs)
+                // 끝 화면이 붙으면 낭독 줄도 그만큼 무음으로 이어 영상과 길이가 같게 한다
+                val r = WavPad.pad(f, dst, Timing.LEAD_US, times[i].durationUs + if (i == raws.lastIndex) endUs else 0L)
                 if (r != null) padded += dst
             }
         }
@@ -214,7 +333,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val m = p.mediaFor(s, i)
             RenderScene(s.text, s.size, m?.uri, m?.isVideo == true, m?.durationMs ?: 0L, padded[i])
         }
-        val input = RenderInput(scenes, times, p.font, p.music?.uri, p.music?.durationMs ?: 0L, p.musicVolume)
+        val endFile = if (endTexts != null) withContext(Dispatchers.IO) { FrameComposer.saveEndCard(ctx, tpl, p.font, endTexts.first, endTexts.second, outDir) } else null
+        val input = RenderInput(scenes, times, p.font, p.music?.uri, p.music?.durationMs ?: 0L, p.musicVolume,
+            tpl, p.headerTitle, p.headerSource, endFile, endUs)
         val composition = ShortsRenderer.build(ctx, input, ctx.cacheDir)
         val out = File(outDir, "result.mp4")
         export = ExportUi(Phase.RENDER, 0, "영상을 만드는 중입니다. 화면을 켜 둔 채 기다려 주세요.")

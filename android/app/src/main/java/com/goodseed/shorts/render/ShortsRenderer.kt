@@ -1,11 +1,6 @@
 package com.goodseed.shorts.render
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Shader
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -49,6 +44,11 @@ class RenderInput(
     val musicUri: String?,
     val musicDurationMs: Long,
     val musicVolume: Float,
+    val template: VideoTemplate = Templates.DEFAULT,
+    val headerTitle: String = "",
+    val headerSource: String = "",
+    val endCardFile: File? = null,       // 끝 화면 그림(없으면 끝 화면 없음)
+    val endCardUs: Long = 0L,
 )
 
 /**
@@ -67,29 +67,36 @@ object ShortsRenderer {
 
     fun build(ctx: Context, input: RenderInput, cacheDir: File): Composition {
         val tf = Fonts.typeface(ctx, input.font)
-        val total = Timing.totalUs(input.times)
+        val tpl = input.template
+        val sceneEndUs = Timing.totalUs(input.times)          // 장면들이 끝나는 시각(끝 화면 시작)
+        val total = sceneEndUs + input.endCardUs               // 영상 전체 길이
 
         // 자막: 장면마다 줄바꿈 → 쪽 나누기 → 시간표
-        val pages = input.scenes.map { s -> SubtitleLayout.pages(SubtitleLayout.lines(s.text, tf, s.size), s.size) }
+        val factor = tpl.subtitle.sizeFactor
+        val pages = input.scenes.map { s -> SubtitleLayout.pages(SubtitleLayout.lines(s.text, tf, s.size, factor), s.size) }
         val cues = Timing.cues(input.times, pages)
-        val timedTexts = cues.map { c -> com.goodseed.shorts.render.TimedText(c.startUs, c.endUs, SubtitleLayout.spannable(c.lines, tf, input.scenes[c.sceneIndex].size)) }
-        val overlay = SubtitleOverlay(timedTexts)
+        val timedTexts = cues.map { c -> com.goodseed.shorts.render.TimedText(c.startUs, c.endUs, SubtitleLayout.spannable(c.lines, tf, input.scenes[c.sceneIndex].size, tpl.subtitle)) }
+        val overlays = arrayListOf<androidx.media3.effect.TextOverlay>(SubtitleOverlay(timedTexts, tpl.subtitle.anchorY))
+        tpl.header?.let { h ->
+            SubtitleLayout.headerSpannable(h, tf, input.headerTitle, input.headerSource)?.let { overlays += HeaderOverlay(it, sceneEndUs, h.anchorY) }
+        }
 
         // 영상 줄
         val fit = Presentation.createForWidthAndHeight(OUT_W, OUT_H, Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP)
-        val fallbackBg = defaultBackground(cacheDir)
+        val fallbackBg = BackgroundArt.file(cacheDir, tpl)
         val videoItems = ArrayList<EditedMediaItem>()
         for ((i, s) in input.scenes.withIndex()) {
             val durUs = input.times[i].durationUs
             val bg = s.bgUri
             if (bg == null) {
-                videoItems += imageItem(fallbackBg.toUri(), durUs, fit)
+                videoItems += imageItem(fallbackBg.toUri(), durUs, fit, null)
             } else if (!s.bgIsVideo) {
-                videoItems += imageItem(bg.toUri(), durUs, fit)
+                videoItems += imageItem(bg.toUri(), durUs, fit, tpl.takeIf { it.motion != Motion.NONE })
             } else {
                 videoItems += videoItems(bg.toUri(), s.bgDurationMs, durUs, fit)
             }
         }
+        input.endCardFile?.let { if (input.endCardUs > 0) videoItems += imageItem(it.toUri(), input.endCardUs, fit, null) }
         val videoSeq = sequence(C.TRACK_TYPE_VIDEO, videoItems)
 
         // 낭독 줄
@@ -112,7 +119,7 @@ object ShortsRenderer {
             if (items.isNotEmpty()) seqs += sequence(C.TRACK_TYPE_AUDIO, items)
         }
 
-        val globalEffects = Effects(emptyList<AudioProcessor>(), listOf<Effect>(OverlayEffect(listOf(overlay))))
+        val globalEffects = Effects(emptyList<AudioProcessor>(), listOf<Effect>(OverlayEffect(overlays.toList())))
         return Composition.Builder(seqs).setEffects(globalEffects).build()
     }
 
@@ -120,10 +127,13 @@ object ShortsRenderer {
     private fun sequence(trackType: Int, items: List<EditedMediaItem>): EditedMediaItemSequence =
         EditedMediaItemSequence.Builder(setOf(trackType)).addItems(items).build()
 
-    private fun imageItem(uri: Uri, durUs: Long, fit: Presentation): EditedMediaItem {
+    /** 사진 한 장. tpl 이 주어지면(움직임이 있는 템플릿) 천천히 확대·이동 효과를 건다. */
+    private fun imageItem(uri: Uri, durUs: Long, fit: Presentation, tpl: VideoTemplate?): EditedMediaItem {
         val mi = MediaItem.Builder().setUri(uri).setImageDurationMs(durUs / 1000L).build()
+        val fx = arrayListOf<Effect>(fit)
+        if (tpl != null) fx += KenBurnsEffect(tpl.motion, tpl.motionAmount, durUs)
         return EditedMediaItem.Builder(mi).setDurationUs(durUs).setFrameRate(FPS)
-            .setEffects(Effects(emptyList(), listOf<Effect>(fit))).build()
+            .setEffects(Effects(emptyList(), fx)).build()
     }
 
     /** 영상이 장면보다 짧으면 처음부터 반복해 장면 길이를 채운다. */
@@ -140,19 +150,6 @@ object ShortsRenderer {
             leftMs -= take
         }
         return out
-    }
-
-    /** 배경을 고르지 않았을 때 쓰는 은은한 초록 그라데이션 한 장. */
-    fun defaultBackground(cacheDir: File): File {
-        val f = File(cacheDir, "default-bg-v1.png")
-        if (f.exists() && f.length() > 0) return f
-        cacheDir.mkdirs()
-        val bmp = Bitmap.createBitmap(OUT_W, OUT_H, Bitmap.Config.ARGB_8888)
-        val p = Paint().apply { shader = LinearGradient(0f, 0f, 0f, OUT_H.toFloat(), 0xFF1F6B44.toInt(), 0xFF0E2E1E.toInt(), Shader.TileMode.CLAMP) }
-        Canvas(bmp).drawRect(0f, 0f, OUT_W.toFloat(), OUT_H.toFloat(), p)
-        f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bmp.recycle()
-        return f
     }
 
     interface Listener {

@@ -1,0 +1,135 @@
+package com.goodseed.shorts.logic
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.InputStream
+import java.security.MessageDigest
+
+/** 세 자리 버전(X.Y.Z). 태그는 `vX.Y.Z` 또는 `X.Y.Z` 만 인정한다(그 밖의 모양은 무시). */
+data class Semver(val major: Int, val minor: Int, val patch: Int) : Comparable<Semver> {
+    override fun compareTo(other: Semver): Int =
+        compareValuesBy(this, other, { it.major }, { it.minor }, { it.patch })
+
+    override fun toString() = "$major.$minor.$patch"
+
+    companion object {
+        private val RE = Regex("^[vV]?(\\d{1,4})\\.(\\d{1,4})\\.(\\d{1,4})$")
+        fun parse(s: String?): Semver? {
+            val m = RE.matchEntire(s?.trim().orEmpty()) ?: return null
+            return Semver(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())
+        }
+    }
+}
+
+/** 새 버전 한 개의 정보. sha256 은 64자리 소문자 16진수. */
+data class UpdateInfo(
+    val version: Semver,
+    val tag: String,
+    val apkName: String,
+    val apkUrl: String,
+    val apkSize: Long,
+    val sha256: String,
+    val pageUrl: String,
+    val notes: String,
+)
+
+object UpdateLogic {
+    const val REPO_RELEASES_API = "https://api.github.com/repos/soultech-oh-ux/goodseed-shorts/releases"
+    const val RELEASES_PAGE = "https://github.com/soultech-oh-ux/goodseed-shorts/releases"
+    private val HEX64 = Regex("(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])")
+
+    /** 파일 내용(`해시  파일이름` 형식 등)에서 첫 64자리 16진수를 꺼낸다. 없으면 null. */
+    fun parseSha256(text: String?): String? = HEX64.find(text.orEmpty())?.value?.lowercase()
+
+    /** 내려받을 곳은 https 이고 GitHub 도메인이어야 한다. */
+    fun isTrustedUrl(url: String): Boolean {
+        if (!url.startsWith("https://")) return false
+        val host = url.removePrefix("https://").substringBefore('/').substringBefore(':').lowercase()
+        return host == "github.com" || host.endsWith(".github.com") || host.endsWith(".githubusercontent.com")
+    }
+
+    /**
+     * GitHub 릴리스 목록(JSON 배열)에서 새 버전을 고른다.
+     *  - 초안(draft)은 건너뛰고, 시험판(prerelease)은 포함한다.
+     *  - 태그가 vX.Y.Z 모양인 것 중 버전이 가장 큰 릴리스 하나를 본다.
+     *  - 그 릴리스에 `goodseed-shorts-X.Y.Z.apk` 가 없거나, 해시(.sha256 파일 내용 또는 API 의 digest)를 알 수 없거나,
+     *    주소가 GitHub 가 아니면 null(조용히 무시).
+     *  - 현재 버전보다 크지 않으면 null.
+     * shaTextOf: `.sha256` 자산 주소 → 그 파일 내용(받지 못하면 null). 네트워크를 쓰는 부분을 밖에서 넣는다.
+     */
+    fun pick(releasesJson: String, current: Semver, shaTextOf: (String) -> String?): UpdateInfo? {
+        val arr = runCatching { JSONArray(releasesJson) }.getOrNull() ?: return null
+        var best: Pair<Semver, JSONObject>? = null
+        for (i in 0 until arr.length()) {
+            val r = arr.optJSONObject(i) ?: continue
+            if (r.optBoolean("draft", false)) continue
+            val v = Semver.parse(r.optString("tag_name")) ?: continue
+            if (best == null || v > best.first) best = v to r
+        }
+        val (ver, rel) = best ?: return null
+        if (ver <= current) return null
+        val apkName = "goodseed-shorts-$ver.apk"
+        val assets = rel.optJSONArray("assets") ?: return null
+        var apk: JSONObject? = null
+        var sha: JSONObject? = null
+        for (i in 0 until assets.length()) {
+            val a = assets.optJSONObject(i) ?: continue
+            when (a.optString("name")) { apkName -> apk = a; "$apkName.sha256" -> sha = a }
+        }
+        val apkUrl = apk?.optString("browser_download_url").orEmpty()
+        if (apk == null || apkUrl.isBlank() || !isTrustedUrl(apkUrl)) return null
+        val shaUrl = sha?.optString("browser_download_url").orEmpty()
+        val hash = (if (shaUrl.isNotBlank() && isTrustedUrl(shaUrl)) parseSha256(shaTextOf(shaUrl)) else null)
+            ?: parseSha256(apk.optString("digest").removePrefix("sha256:"))
+            ?: return null
+        val page = rel.optString("html_url").takeIf { isTrustedUrl(it) } ?: RELEASES_PAGE
+        return UpdateInfo(ver, rel.optString("tag_name"), apkName, apkUrl, apk.optLong("size", -1L), hash, page, rel.optString("body"))
+    }
+
+    /** 하루에 한 번만 자동 확인한다(날짜가 바뀌면 다시). 기록이 없으면 확인한다. */
+    fun shouldAutoCheck(lastDay: String?, today: String): Boolean = lastDay.isNullOrBlank() || lastDay != today
+
+    // ---------- 해시 검증 ----------
+    fun sha256Of(input: InputStream): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        val buf = ByteArray(64 * 1024)
+        while (true) { val n = input.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    fun sha256Of(file: File): String = file.inputStream().use { sha256Of(it) }
+
+    /**
+     * 받은 파일의 해시가 기대값과 같은지 본다. 다르면 파일을 지우고 false.
+     * (해시가 다른 APK 는 절대 설치 화면으로 넘기지 않는다.)
+     */
+    fun verifyOrDelete(file: File, expectedSha256: String): Boolean {
+        val ok = file.isFile && file.length() > 0 && runCatching { sha256Of(file) }.getOrNull() == expectedSha256.lowercase()
+        if (!ok) runCatching { file.delete() }
+        return ok
+    }
+}
+
+/** 업데이트 후 첫 실행 안내 판단과 '바뀐 점'. */
+object WhatsNew {
+    /**
+     * lastRunVersion: 마지막으로 실행했던 버전(없으면 null/빈칸). wasUpdated: 새로 설치가 아니라 업데이트로 들어온 앱인가
+     * (PackageInfo.lastUpdateTime 이 firstInstallTime 보다 뒤). 같은 버전을 다시 열면 안내하지 않는다.
+     */
+    fun shouldShow(lastRunVersion: String?, current: String, wasUpdated: Boolean): Boolean {
+        if (lastRunVersion.isNullOrBlank()) return wasUpdated
+        return lastRunVersion != current
+    }
+
+    fun notesFor(version: String): List<String> = when (version) {
+        "0.2.0" -> listOf(
+            "화면이 밝고 산뜻하게 바뀌었습니다.",
+            "영상 템플릿 8가지를 한 번에 고를 수 있습니다(새벽 묵상·말씀 카드·감성 필름·미니멀 화이트·밤하늘·따뜻한 노을·성경 구절 강조·인용 명언).",
+            "영상에 제목과 출처(예: 시편 23:1)를 넣을 수 있고, 끝 화면이 붙는 템플릿도 있습니다.",
+            "사진이 천천히 확대·이동하는 효과가 들어갑니다.",
+            "새 버전이 나오면 홈에 알림이 뜨고 앱 안에서 바로 업데이트할 수 있습니다.",
+        )
+        else -> listOf("기능이 개선되었습니다.")
+    }
+}

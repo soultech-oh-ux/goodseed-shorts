@@ -3,7 +3,7 @@
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
     <!-- 9:16 화면 틀 -->
     <path android:fillColor="#FFFFFF" android:pathData="M39,26h30a4,4 0 0 1 4,4v48a4,4 0 0 1 -4,4h-30a4,4 0 0 1 -4,-4v-48a4,4 0 0 1 4,-4z" />
-    <path android:fillColor="#1F6B44" android:pathData="M41,32h26v36h-26z" />
+    <path android:fillColor="#5240D6" android:pathData="M41,32h26v36h-26z" />
     <!-- 새싹(씨앗이 자란 모양) -->
     <path android:fillColor="#FFE9A8" android:pathData="M54,62c0,-6 0,-10 0,-12c-5,0 -8,-3 -8,-8c5,0 8,3 8,8c0,-5 3,-8 8,-8c0,5 -3,8 -8,8" />
     <!-- 자막 줄 -->

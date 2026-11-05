@@ -13,15 +13,16 @@ class TimedText(val startUs: Long, val endUs: Long, val text: SpannableString)
 /**
  * 시간별 자막 — 합성 전체에 한 번 걸어 쓰는 TextOverlay.
  * getText(presentationTimeUs) 가 그 시각에 보여 줄 자막(없으면 보이지 않는 한 칸)을 돌려준다.
+ * anchorY: 자막 중심의 세로 위치(−1 아래 … 1 위, 템플릿이 정한다).
  */
 @OptIn(UnstableApi::class)
-class SubtitleOverlay(cues: List<TimedText>) : TextOverlay() {
+class SubtitleOverlay(cues: List<TimedText>, anchorY: Float = SubtitleLayout.BOTTOM_ANCHOR_Y) : TextOverlay() {
     private val sorted = cues.sortedBy { it.startUs }
     private val starts = LongArray(sorted.size) { sorted[it].startUs }
-    private val blank = SpannableString(" ")
+    private val blank = SpannableString(" ")
     private val settings: OverlaySettings = StaticOverlaySettings.Builder()
         .setOverlayFrameAnchor(0f, 0f)
-        .setBackgroundFrameAnchor(0f, SubtitleLayout.BOTTOM_ANCHOR_Y)
+        .setBackgroundFrameAnchor(0f, anchorY)
         .build()
 
     /** 시각 t 에 보여 줄 자막(없으면 null). 시험에서도 쓴다. */
@@ -34,6 +35,22 @@ class SubtitleOverlay(cues: List<TimedText>) : TextOverlay() {
     }
 
     override fun getText(presentationTimeUs: Long): SpannableString = cueAt(presentationTimeUs)?.text ?: blank
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = settings
+}
+
+/** 제목·출처 줄 — 0 ~ endUs 동안 같은 글을 보이고 그 뒤(끝 화면)에는 보이지 않는다. */
+@OptIn(UnstableApi::class)
+class HeaderOverlay(private val text: SpannableString, private val endUs: Long, anchorY: Float) : TextOverlay() {
+    private val blank = SpannableString(" ")
+    private val settings: OverlaySettings = StaticOverlaySettings.Builder()
+        .setOverlayFrameAnchor(0f, 0f)
+        .setBackgroundFrameAnchor(0f, anchorY)
+        .build()
+
+    fun visibleAt(tUs: Long): Boolean = tUs in 0 until endUs
+
+    override fun getText(presentationTimeUs: Long): SpannableString = if (visibleAt(presentationTimeUs)) text else blank
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = settings
 }

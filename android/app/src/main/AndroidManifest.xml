@@ -3,6 +3,8 @@
 
     <!-- Pexels 영상 검색·내려받기(키를 입력했을 때만 사용) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 앱 안 업데이트: 받은 APK 의 시스템 설치 화면을 열기 위해(자동 설치 아님) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
         <package android:name="com.google.android.youtube" />
@@ -30,5 +32,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

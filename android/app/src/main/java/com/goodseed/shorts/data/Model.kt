@@ -2,6 +2,8 @@ package com.goodseed.shorts.data
 
 import com.goodseed.shorts.render.SubFont
 import com.goodseed.shorts.render.SubSize
+import com.goodseed.shorts.render.Templates
+import com.goodseed.shorts.render.VideoTemplate
 
 enum class MediaOrigin { PHONE, IMPORTED, PEXELS }
 
@@ -40,7 +42,12 @@ data class Project(
     val music: MusicChoice? = null,
     val musicVolume: Float = 0.5f,
     val font: SubFont = SubFont.PRETENDARD,
+    val templateId: String = Templates.DEFAULT.id,
+    val headerTitle: String = "",      // 영상에 넣는 제목(선택)
+    val headerSource: String = "",     // 출처 줄(선택, 예: 시편 23:1)
 ) {
+    val template: VideoTemplate get() = Templates.byId(templateId)
+
     val title: String get() = scenes.firstOrNull()?.text?.take(24) ?: "묵상 영상"
 
     /** 순번대로 돌아가며 장면에 배경을 배정한다(사용자가 장면별로 바꾼 것은 그대로 둔다). */

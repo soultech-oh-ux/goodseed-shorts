@@ -35,6 +35,11 @@ import com.goodseed.shorts.render.Fonts
 import com.goodseed.shorts.render.SubFont
 import com.goodseed.shorts.render.SubSize
 import com.goodseed.shorts.render.SubtitleLayout
+import com.goodseed.shorts.render.Templates
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 
 // ⑤ 미리보기·수정 ---------------------------------------------------------
 @Composable
@@ -47,37 +52,48 @@ fun PreviewScreen(vm: AppViewModel) {
     val scene = p.scenes.getOrNull(sel)
     val tf = remember(p.font) { Fonts.typeface(ctx, p.font) }
 
-    StepScaffold(5, "미리보기와 수정", onBack = { vm.back() }, primaryText = "다음: 저장하기", primaryEnabled = p.scenes.isNotEmpty(), onPrimary = { vm.go(Screen.EXPORT) }) {
+    StepScaffold(6, "미리보기와 수정", onBack = { vm.back() }, primaryText = "다음: 저장하기", primaryEnabled = p.scenes.isNotEmpty(), onPrimary = { vm.go(Screen.EXPORT) }) {
         if (scene == null) { Note("장면이 없습니다. 이전 단계로 돌아가 글을 넣어 주세요.", Warn); return@StepScaffold }
         val media = p.mediaFor(scene, sel)
         val bg = rememberThumb(media, 720)
-        val lines = remember(scene.text, scene.size, p.font) { SubtitleLayout.lines(scene.text, tf, scene.size) }
+        val lines = remember(scene.text, scene.size, p.font, p.templateId) { SubtitleLayout.lines(scene.text, tf, scene.size, p.template.subtitle.sizeFactor) }
         val pages = remember(lines, scene.size) { SubtitleLayout.pages(lines, scene.size) }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Top) {
-            ScenePreview(bg, pages.firstOrNull().orEmpty(), p.font, scene.size, Modifier.height(300.dp))
+            ScenePreview(bg, pages.firstOrNull().orEmpty(), p.font, scene.size, p.template, p.headerTitle, p.headerSource, Modifier.height(250.dp))
             Column(Modifier.padding(start = 12.dp)) {
-                Text("${sel + 1}번째 장면 / ${p.scenes.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                Text("${sel + 1}번째 장면 / ${p.scenes.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AccentDark)
                 if (pages.size > 1) Note("글이 길어 자막이 ${pages.size}번에 나뉘어 나옵니다. (지금은 첫 장)")
                 Spacer(Modifier.height(6.dp))
                 Text("자막 글꼴", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 SubFont.entries.forEach { f -> ChoiceChip(f.label, p.font == f, { vm.setFont(f) }, Modifier.fillMaxWidth().padding(top = 6.dp)) }
                 Spacer(Modifier.height(6.dp))
-                BigButton("▶ 듣기", onClick = { vm.synth.select(p.voice, p.speed.rate); vm.synth.speakPreview(scene.text) }, modifier = Modifier.fillMaxWidth(), filled = false)
+                BigButton("듣기", icon = Icons.Filled.PlayArrow, onClick = { vm.synth.select(p.voice, p.speed.rate); vm.synth.speakPreview(scene.text) }, modifier = Modifier.fillMaxWidth(), filled = false)
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
+        Text("스타일 바꾸기", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AccentDark)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 6.dp)) {
+            items(Templates.ALL, key = { it.id }) { t ->
+                val on = t.id == p.templateId
+                Column(Modifier.width(76.dp).clip(RoundedCornerShape(14.dp)).then(if (on) Modifier.border(BorderStroke(3.dp, Accent), RoundedCornerShape(14.dp)) else Modifier)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { vm.chooseTemplate(t.id) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    TemplateThumb(t, p.scenes.firstOrNull()?.text?.take(20) ?: HOME_SAMPLE, p.headerTitle, p.headerSource, Modifier.fillMaxWidth().aspectRatio(9f / 16f).clip(RoundedCornerShape(12.dp)), outW = 240)
+                    Text(t.name, fontSize = 14.sp, color = if (on) AccentDark else Ink, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+                }
+            }
+        }
         Text("문장을 누르면 글자·사진·자막 크기를 고칠 수 있습니다", fontSize = 16.sp, color = Muted)
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
             itemsIndexed(p.scenes, key = { _, s -> s.id }) { i, s ->
                 val m = p.mediaFor(s, i)
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                        .background(if (i == sel) GreenSoft else Color.White)
-                        .border(if (i == sel) BorderStroke(2.dp, Green) else BorderStroke(0.dp, Color.Transparent), RoundedCornerShape(12.dp))
+                        .background(if (i == sel) AccentSoft else CardColor)
+                        .border(if (i == sel) BorderStroke(2.dp, Accent) else BorderStroke(0.dp, Color.Transparent), RoundedCornerShape(12.dp))
                         .clickable { sel = i; editing = s.id }.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${i + 1}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Green, modifier = Modifier.width(32.dp))
+                    Text("${i + 1}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Accent, modifier = Modifier.width(32.dp))
                     Text(s.text, fontSize = 18.sp, maxLines = 3, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
                     Thumb(m, Modifier.size(width = 44.dp, height = 66.dp).clip(RoundedCornerShape(6.dp)))
@@ -96,9 +112,9 @@ private fun SceneEditor(vm: AppViewModel, s: Scene, onClose: () -> Unit) {
     val pickMore = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.PHONE) }
     var text by remember(s.id) { mutableStateOf(s.text) }
     Dialog(onDismissRequest = onClose) {
-        Surface(shape = RoundedCornerShape(20.dp), color = Paper) {
+        Surface(shape = RoundedCornerShape(20.dp), color = PageBg) {
             Column(Modifier.padding(18.dp).heightIn(max = 640.dp).verticalScrollCompat()) {
-                Text("장면 고치기", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = GreenDark)
+                Text("장면 고치기", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AccentDark)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = text, onValueChange = { text = it; vm.updateScene(s.id) { sc -> sc.copy(text = it) } }, modifier = Modifier.fillMaxWidth().heightIn(min = 110.dp),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 20.sp, lineHeight = 28.sp), label = { Text("글자 (자막과 낭독에 모두 쓰입니다)") })
@@ -130,8 +146,8 @@ private fun SceneEditor(vm: AppViewModel, s: Scene, onClose: () -> Unit) {
 @Composable
 private fun ChoiceBox(selected: Boolean, onClick: () -> Unit, content: @Composable BoxScope.() -> Unit) {
     Box(
-        Modifier.size(width = 72.dp, height = 108.dp).clip(RoundedCornerShape(10.dp)).background(GreenSoft)
-            .border(if (selected) BorderStroke(4.dp, Green) else BorderStroke(1.dp, Color(0xFFCCCCCC)), RoundedCornerShape(10.dp))
+        Modifier.size(width = 72.dp, height = 108.dp).clip(RoundedCornerShape(10.dp)).background(AccentSoft)
+            .border(if (selected) BorderStroke(4.dp, Accent) else BorderStroke(1.dp, Color(0xFFCCCCCC)), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center, content = content,
     )
@@ -149,7 +165,7 @@ fun ExportScreen(vm: AppViewModel) {
     val view = LocalView.current
     DisposableEffect(running) { view.keepScreenOn = running; onDispose { view.keepScreenOn = false } }
     val p = vm.project
-    StepScaffold(6, "영상 만들어 저장하기", onBack = { vm.back() },
+    StepScaffold(7, "영상 만들어 저장하기", onBack = { vm.back() },
         primaryText = when (e.phase) { Phase.DONE -> "처음으로"; Phase.ERROR -> "다시 시도"; else -> if (running) "만드는 중…" else "영상 만들기 시작" },
         primaryEnabled = !running,
         onPrimary = { when (e.phase) { Phase.DONE -> { vm.export = com.goodseed.shorts.ExportUi(); vm.go(Screen.HOME) }; else -> vm.startExport() } }) {
@@ -166,19 +182,19 @@ fun ExportScreen(vm: AppViewModel) {
                 Phase.NARRATION, Phase.RENDER, Phase.SAVING -> {
                     Text(e.message, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(progress = { e.percent / 100f }, modifier = Modifier.fillMaxWidth().height(14.dp), color = Green)
-                    Text("${e.percent}%", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = GreenDark, modifier = Modifier.padding(top = 8.dp))
+                    LinearProgressIndicator(progress = { e.percent / 100f }, modifier = Modifier.fillMaxWidth().height(14.dp), color = Accent)
+                    Text("${e.percent}%", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AccentDark, modifier = Modifier.padding(top = 8.dp))
                     Spacer(Modifier.height(10.dp))
                     BigButton("취소", onClick = { vm.cancelExport() }, modifier = Modifier.fillMaxWidth(), filled = false)
                 }
                 Phase.ERROR -> Text(e.message, fontSize = 18.sp, color = Warn, lineHeight = 26.sp)
                 Phase.DONE -> {
-                    Text("✔ 영상이 저장되었습니다", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Green)
+                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Filled.Check, null, tint = Accent, modifier = Modifier.size(30.dp)); Text(" 영상이 저장되었습니다", fontSize = 24.sp, fontFamily = LocalUiFont.current, fontWeight = FontWeight.Bold, color = Accent) }
                     Spacer(Modifier.height(12.dp))
                     val uri = e.resultUri.orEmpty()
-                    BigButton("▶ 영상 보기", onClick = { openVideo(ctx, uri) }, modifier = Modifier.fillMaxWidth(), filled = false)
+                    BigButton("영상 보기", onClick = { openVideo(ctx, uri) }, modifier = Modifier.fillMaxWidth(), filled = false, icon = Icons.Filled.PlayArrow)
                     Spacer(Modifier.height(10.dp))
-                    BigButton("유튜브로 공유", onClick = { shareVideo(ctx, uri, "com.google.android.youtube") }, modifier = Modifier.fillMaxWidth())
+                    BigButton("유튜브로 공유", onClick = { shareVideo(ctx, uri, "com.google.android.youtube") }, modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.Share)
                     Spacer(Modifier.height(10.dp))
                     BigButton("카카오톡으로 공유", onClick = { shareVideo(ctx, uri, "com.kakao.talk") }, modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(10.dp))

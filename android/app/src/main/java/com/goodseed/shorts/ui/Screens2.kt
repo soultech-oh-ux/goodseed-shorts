@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,13 +45,13 @@ fun MediaScreen(vm: AppViewModel) {
         uri?.let { runCatching { ctx.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }; vm.chooseMusic(it) }
     }
     val p = vm.project
-    StepScaffold(4, "배경과 음악", onBack = { vm.back() }, primaryText = "다음: 미리보기·수정", onPrimary = { vm.go(Screen.PREVIEW) }) {
+    StepScaffold(5, "배경과 음악", onBack = { vm.back() }, primaryText = "다음: 미리보기·수정", onPrimary = { vm.go(Screen.PREVIEW) }) {
         ScrollBody {
             Text("※ 권리를 확인한 자료만 쓰세요.", fontSize = 17.sp, color = Warn, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
             vm.notice?.let { Note(it, Warn) }
 
             SectionTitle("배경 사진·영상 (선택)")
-            Note("고른 순서대로 장면에 돌아가며 들어갑니다. 아무것도 고르지 않으면 초록 배경이 쓰입니다.")
+            Note("고른 순서대로 장면에 돌아가며 들어갑니다. 아무것도 고르지 않으면 고른 스타일의 기본 배경이 쓰입니다.")
             Spacer(Modifier.height(6.dp))
             BigButton("내 사진·영상 고르기", onClick = { pickPhone.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, modifier = Modifier.fillMaxWidth(), filled = false)
             Spacer(Modifier.height(8.dp))
@@ -59,19 +61,19 @@ fun MediaScreen(vm: AppViewModel) {
                 Text("고른 자료 ${p.media.size}개 (번호 = 순서)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
                     p.media.forEachIndexed { i, m ->
-                        Box(Modifier.size(width = 96.dp, height = 144.dp).clip(RoundedCornerShape(10.dp))) {
+                        Box(Modifier.size(width = 112.dp, height = 168.dp).clip(RoundedCornerShape(14.dp))) {
                             Thumb(m, Modifier.fillMaxSize())
-                            Box(Modifier.align(Alignment.TopStart).padding(4.dp).size(32.dp).clip(CircleShape).background(Green), contentAlignment = Alignment.Center) {
+                            Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(32.dp).clip(CircleShape).background(Accent), contentAlignment = Alignment.Center) {
                                 Text("${i + 1}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                             }
-                            if (m.isVideo) Text("🎬", Modifier.align(Alignment.BottomStart).padding(4.dp), fontSize = 18.sp)
-                            Box(Modifier.align(Alignment.TopEnd).padding(2.dp).size(36.dp).clip(CircleShape).background(Color(0xCC000000)).clickable { vm.removeMedia(m.id) }, contentAlignment = Alignment.Center) {
-                                Text("✕", color = Color.White, fontSize = 17.sp)
+                            if (m.isVideo) Text("영상", Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xCC000000)).padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 14.sp, color = Color.White)
+                            Box(Modifier.align(Alignment.TopEnd).size(56.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { vm.removeMedia(m.id) }, contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(34.dp).clip(CircleShape).background(Color(0xCC000000)), contentAlignment = Alignment.Center) { Icon(Icons.Filled.Close, "빼기", tint = Color.White) }
                             }
                         }
                     }
                 }
-                TextButton(onClick = { vm.clearMedia() }, modifier = Modifier.heightIn(min = 52.dp)) { Text("모두 빼기", fontSize = 17.sp) }
+                TextButton(onClick = { vm.clearMedia() }, modifier = Modifier.heightIn(min = 56.dp)) { Text("모두 빼기", fontSize = 17.sp) }
             }
 
             PexelsSection(vm)
@@ -89,7 +91,7 @@ fun MediaScreen(vm: AppViewModel) {
                         ChoiceChip(l, kotlin.math.abs(p.musicVolume - v) < 0.01f, { vm.setMusicVolume(v) }, Modifier.weight(1f))
                     }
                 }
-                TextButton(onClick = { vm.clearMusic() }, modifier = Modifier.heightIn(min = 52.dp)) { Text("음악 빼기", fontSize = 17.sp) }
+                TextButton(onClick = { vm.clearMusic() }, modifier = Modifier.heightIn(min = 56.dp)) { Text("음악 빼기", fontSize = 17.sp) }
             }
             Spacer(Modifier.height(10.dp))
         }
@@ -122,9 +124,9 @@ private fun PexelsSection(vm: AppViewModel) {
         }
         if (vm.pexels.message.isNotBlank()) Note(vm.pexels.message, if (vm.pexels.results.isEmpty()) Warn else Muted)
         vm.pexels.results.forEach { v ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(RoundedCornerShape(12.dp)).background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(RoundedCornerShape(12.dp)).background(CardColor).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 val img = rememberUrlImage(v.thumbUrl)
-                Box(Modifier.size(width = 60.dp, height = 90.dp).clip(RoundedCornerShape(8.dp)).background(GreenSoft)) {
+                Box(Modifier.size(width = 60.dp, height = 90.dp).clip(RoundedCornerShape(8.dp)).background(AccentSoft)) {
                     if (img != null) Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
@@ -134,9 +136,10 @@ private fun PexelsSection(vm: AppViewModel) {
                 BigButton("추가", onClick = { vm.addPexels(v) }, enabled = !vm.pexels.busy)
             }
         }
-        TextButton(onClick = { vm.savePexelsKey("") }, modifier = Modifier.heightIn(min = 48.dp)) { Text("키 지우기", fontSize = 16.sp) }
+        TextButton(onClick = { vm.savePexelsKey("") }, modifier = Modifier.heightIn(min = 56.dp)) { Text("키 지우기", fontSize = 16.sp) }
     }
     Spacer(Modifier.height(4.dp))
-    Text("Provided by Pexels", fontSize = 15.sp, color = Green, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.clickable { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.pexels.com")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }.padding(vertical = 8.dp))
+    Box(Modifier.heightIn(min = 56.dp).clickable(role = androidx.compose.ui.semantics.Role.Button) { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.pexels.com")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }, contentAlignment = Alignment.CenterStart) {
+        Text("Provided by Pexels", fontSize = 15.sp, color = Accent, fontWeight = FontWeight.SemiBold)
+    }
 }
