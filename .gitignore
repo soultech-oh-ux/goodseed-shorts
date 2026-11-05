@@ -14,3 +14,4 @@ android/local.properties
 captures/
 # 배포 파일(APK)은 저장소가 아니라 릴리스 자산으로
 dist/
+.kotlin/
