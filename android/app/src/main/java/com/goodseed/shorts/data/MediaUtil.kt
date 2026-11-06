@@ -45,6 +45,14 @@ object MediaUtil {
         return FileProbe(MediaRef(UUID.randomUUID().toString(), Uri.fromFile(file).toString(), isVideo, dur, label, origin, credit, attribution))
     }
 
+    /** 앱 안에 받아 둔 음악 파일(file://). file:// 은 ContentResolver 가 종류를 알려 주지 않으므로 길이만으로 읽을 수 있는지 확인한다. */
+    fun probeAudioFile(ctx: Context, file: File, label: String, attribution: com.goodseed.shorts.logic.Attribution?): MusicChoice? {
+        if (!file.isFile || file.length() <= 0) return null
+        val d = durationMs(ctx, Uri.fromFile(file)) ?: return null
+        if (d <= 0) return null
+        return MusicChoice(Uri.fromFile(file).toString(), label, d, attribution)
+    }
+
     fun probeAudio(ctx: Context, uri: Uri): MusicChoice? {
         val mime = ctx.contentResolver.getType(uri).orEmpty()
         if (!mime.startsWith("audio/") && !mime.startsWith("video/")) return null

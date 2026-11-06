@@ -8,9 +8,9 @@ import java.net.URLEncoder
 internal fun JSONObject.str(key: String): String = if (isNull(key)) "" else optString(key)
 
 /** 걸러낸 건수(화면에 "이용 조건이 맞지 않아 N건 숨김"으로 알려 준다). */
-data class Excluded(val license: Int = 0, val format: Int = 0, val size: Int = 0) {
-    val total: Int get() = license + format + size
-    operator fun plus(o: Excluded) = Excluded(license + o.license, format + o.format, size + o.size)
+data class Excluded(val license: Int = 0, val format: Int = 0, val size: Int = 0, val other: Int = 0) {
+    val total: Int get() = license + format + size + other
+    operator fun plus(o: Excluded) = Excluded(license + o.license, format + o.format, size + o.size, other + o.other)
 }
 
 /** 검색 한 쪽(page)의 결과. next 가 null 이면 더 없다. */
@@ -201,6 +201,26 @@ object FreeUrls {
     /** 사진 한 장의 줄인 그림 주소를 묻는 요청(원본이 용량 상한보다 클 때). */
     fun wikimediaThumb(fileTitle: String, width: Int): String =
         COMMONS_API + "?action=query&format=json&titles=${enc(fileTitle)}&prop=imageinfo&iiprop=url&iiurlwidth=$width"
+
+    const val NASA_API = "https://images-api.nasa.gov/search"
+    const val MET_SEARCH = "https://collectionapi.metmuseum.org/public/collection/v1.1/search"
+    /** 메트 미술관: 검색은 v1.1(v1 검색은 폐지), 작품 상세(objects/{id})는 v1 에서만 동작한다(v1.1 은 404 — 2026-11-06 실측). */
+    const val MET_OBJECT = "https://collectionapi.metmuseum.org/public/collection/v1/objects/"
+    const val OPENVERSE_AUDIO_API = "https://api.openverse.org/v1/audio/"
+    const val NASA_PAGE_SIZE = 24
+    const val MET_LIMIT = 16
+
+    fun nasaSearch(terms: String, kind: FreeKind, page: Int = 1): String =
+        NASA_API + "?q=${enc(cleanTerms(terms))}&media_type=${if (kind == FreeKind.VIDEO) "video" else "image"}&page_size=$NASA_PAGE_SIZE" + (if (page > 1) "&page=$page" else "")
+
+    /** 메트: 제목에 낱말이 든 공개 도메인·그림 있는 작품. 기본은 회화(Paintings)만, broad 이면 모든 분류. */
+    fun metSearch(terms: String, offset: Int, broad: Boolean): String =
+        MET_SEARCH + "?q=${enc(cleanTerms(terms))}&hasImages=true&isPublicDomain=true&title=true" + (if (broad) "" else "&medium=Paintings") + "&limit=$MET_LIMIT&offset=$offset"
+
+    fun metObject(id: Long): String = MET_OBJECT + id
+
+    fun openverseAudio(terms: String): String =
+        OPENVERSE_AUDIO_API + "?q=${enc(cleanTerms(terms))}&license=cc0,pdm,by&mature=false&page_size=20"
 
     fun openverse(terms: String): String =
         OPENVERSE_API + "?q=${enc(cleanTerms(terms))}&license=cc0,pdm,by&category=photograph&mature=false&page_size=20"

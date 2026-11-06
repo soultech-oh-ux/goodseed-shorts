@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Check
 import com.goodseed.shorts.Screen
@@ -75,8 +76,9 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
         item { SectionTitle("최근 작품") }
+        if (vm.homeNotice.isNotBlank()) item { Text(vm.homeNotice, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Accent, modifier = Modifier.padding(bottom = 8.dp)) }
         if (vm.recents.isEmpty()) item { Note("아직 만든 영상이 없습니다. 위 버튼을 눌러 첫 영상을 만들어 보세요.") }
-        else items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }) }
+        else items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }, onDelete = { vm.askDelete(w) }) }
         item {
             Spacer(Modifier.height(8.dp))
             if (!showBanner && u.message.isNotBlank()) Note(u.message, if (u.message.startsWith("새 버전을 확인하지")) Warn else Muted)
@@ -91,6 +93,9 @@ fun HomeScreen(vm: AppViewModel) {
     }
     if (about) AboutDialog { about = false }
     UpdateDialogs(vm)
+    vm.deleteAsk?.let { DeleteDialog(vm, it) }
+    val deleteLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r -> vm.onGalleryDeleteResult(r.resultCode == android.app.Activity.RESULT_OK) }
+    vm.pendingGalleryDelete?.let { sender -> LaunchedEffect(sender) { runCatching { deleteLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build()) }.onFailure { vm.onGalleryDeleteResult(false) } } }
 }
 
 const val HOME_SAMPLE = "주님은 나의 목자시니 부족함이 없으리로다."
@@ -121,18 +126,47 @@ private fun AboutDialog(onClose: () -> Unit) {
 }
 
 @Composable
-private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit) {
+private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
     val thumb = remember(w.thumbPath) { runCatching { android.graphics.BitmapFactory.decodeFile(w.thumbPath)?.asImageBitmap() }.getOrNull() }
     SoftCard(Modifier.fillMaxWidth(), onClick = onOpen) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(54.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(AccentSoft)) {
-                if (thumb != null) androidx.compose.foundation.Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Column(Modifier.padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(54.dp).height(96.dp).clip(RoundedCornerShape(10.dp)).background(AccentSoft)) {
+                    if (thumb != null) androidx.compose.foundation.Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                    Text(w.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                    Text(SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(w.savedAtMillis)), fontSize = 15.sp, color = Muted)
+                }
             }
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(w.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                Text(SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(Date(w.savedAtMillis)), fontSize = 15.sp, color = Muted)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                BigButton("공유", onClick = onShare, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Share)
+                BigButton("삭제", onClick = onDelete, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Delete)
             }
-            BigButton("공유", onClick = onShare, filled = false, icon = Icons.Filled.Share)
+        }
+    }
+}
+
+/** [삭제] 확인 창. 갤러리에 저장된 영상 파일은 체크해야만 함께 지운다(기본 해제). */
+@Composable
+fun DeleteDialog(vm: AppViewModel, w: RecentWork) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = { vm.cancelDelete() }) {
+        Surface(shape = RoundedCornerShape(24.dp), color = PageBg) {
+            Column(Modifier.padding(20.dp)) {
+                Text("이 작품을 지울까요?", fontSize = 24.sp, fontFamily = LocalUiFont.current, fontWeight = FontWeight.Bold, color = AccentDark)
+                Text("「${w.title}」", fontSize = 18.sp, color = Ink, maxLines = 2, modifier = Modifier.padding(top = 8.dp))
+                Text("최근 작품 목록과 이 작품을 만들 때 앱 안에 받아 둔 녹음·사진·영상·음악 파일이 지워집니다.", fontSize = 16.sp, color = Muted, lineHeight = 22.sp, modifier = Modifier.padding(top = 6.dp))
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = androidx.compose.ui.semantics.Role.Checkbox) { vm.chooseDeleteAlsoGallery(!vm.deleteAlsoGallery) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = vm.deleteAlsoGallery, onCheckedChange = null)
+                    Text("  갤러리에 저장된 영상 파일도 함께 지우기", fontSize = 18.sp, color = Ink, lineHeight = 24.sp)
+                }
+                if (vm.deleteAlsoGallery) Text("체크하면 폰 갤러리의 영상이 사라집니다. 폰에 따라 한 번 더 확인 창이 뜰 수 있습니다.", fontSize = 15.sp, color = Warn, lineHeight = 21.sp)
+                Spacer(Modifier.height(12.dp))
+                BigButton("지우기", onClick = { vm.confirmDelete() }, modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.Delete)
+                Spacer(Modifier.height(8.dp))
+                BigButton("취소", onClick = { vm.cancelDelete() }, modifier = Modifier.fillMaxWidth(), filled = false)
+            }
         }
     }
 }

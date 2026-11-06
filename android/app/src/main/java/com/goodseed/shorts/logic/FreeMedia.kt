@@ -1,8 +1,10 @@
 package com.goodseed.shorts.logic
 
 /** 무료 자료의 출처(어디서 받았는지). 영상 끝 글자와 유튜브 설명란 문구의 재료가 된다. */
-enum class FreeProvider(val label: String) {
+enum class FreeProvider(val label: String, val creditLine: String? = null) {
     WIKIMEDIA("위키미디어 공용"), OPENVERSE("Openverse"), PEXELS("Pexels"),
+    NASA("NASA", "Credit: NASA"),
+    MET("메트로폴리탄 미술관", "The Metropolitan Museum of Art, Public Domain (Open Access)"),
 }
 
 enum class FreeKind { PHOTO, VIDEO }
@@ -32,6 +34,8 @@ data class FreeMedia(
     val bytes: Long,               // 받을 파일 크기(모르면 -1)
     val mime: String,
     val resizeTitle: String = "",  // 위키미디어 사진이 용량 상한보다 클 때: 줄인 그림을 물을 파일 이름("File:..." 형태)
+    val altUrls: List<String> = emptyList(),   // downloadUrl 이 용량 상한을 넘으면 차례로 시도할 더 작은 주소(메트 미술관의 작은 그림 등)
+    val collectionUrl: String = "",            // NASA 영상: mp4 목록(collection.json) 주소 — 받을 때 크기를 확인해 고른다
 ) {
     val fileExt: String get() = when {
         mime.contains("webm") -> "webm"
@@ -51,6 +55,7 @@ data class LicenseVerdict(val allowed: Boolean, val label: String, val url: Stri
 object SizeCaps {
     const val MAX_VIDEO_BYTES = 100L * 1024 * 1024
     const val MAX_PHOTO_BYTES = 20L * 1024 * 1024
+    const val MAX_MUSIC_BYTES = 20L * 1024 * 1024
     fun maxFor(kind: FreeKind): Long = if (kind == FreeKind.VIDEO) MAX_VIDEO_BYTES else MAX_PHOTO_BYTES
     fun mb(bytes: Long): String = if (bytes < 0) "?" else if (bytes < 1_048_576L) "${(bytes + 1023) / 1024}KB" else "%.1fMB".format(java.util.Locale.US, bytes / 1_048_576.0)
 }

@@ -24,12 +24,22 @@ class FakeNet(
     var wikimedia: (String) -> String = { res("wikimedia_photo_sunrise_free.json") },
     var openverse: () -> String = { res("openverse_sunrise.json") },
     var thumb: (String) -> String = { """{"query":{"pages":{"1":{"imageinfo":[{"thumburl":"https://upload.wikimedia.org/t/1920px-X.jpg"}]}}}}""" },
+    var nasa: (String) -> String = { """{"collection":{"items":[]}}""" },
+    var met: (String) -> String = { """{"total":0,"objectIDs":null}""" },
+    var metObject: (Long) -> String = { throw FreeError(FreeError.Kind.BAD, "404") },
+    var audio: () -> String = { res("openverse_audio_piano.json") },
+    var collection: () -> String = { res("nasa_video_collection.json") },
 ) : HttpGet {
     val urls = java.util.Collections.synchronizedList(ArrayList<String>())
     override fun get(url: String): String {
         urls += url
         return when {
+            url.startsWith(FreeUrls.OPENVERSE_AUDIO_API) -> audio()
             url.startsWith(FreeUrls.OPENVERSE_API) -> openverse()
+            url.startsWith(FreeUrls.NASA_API) -> nasa(url)
+            url.startsWith(FreeUrls.MET_SEARCH) -> met(url)
+            url.startsWith(FreeUrls.MET_OBJECT) -> metObject(url.removePrefix(FreeUrls.MET_OBJECT).toLong())
+            url.contains("collection.json") -> collection()
             url.contains("titles=") -> thumb(url)
             url.startsWith(FreeUrls.COMMONS_API) -> wikimedia(url)
             else -> throw FreeError(FreeError.Kind.BAD, "모르는 주소 $url")
@@ -45,6 +55,7 @@ class FreeFlowTest {
     private lateinit var vm: AppViewModel
     private lateinit var net: FakeNet
     private val fetched = ArrayList<String>()
+    private var headSizes: (String) -> Long = { -1 }
     private var fetchBehavior: (String, File, (Int) -> Unit, () -> Boolean) -> FetchResult = { _, dest, _, _ -> dest.parentFile?.mkdirs(); dest.writeBytes(ByteArray(2048) { 7 }); FetchResult.Ok(2048) }
     private var probeResult: (File, FreeMedia) -> MediaUtil.FileProbe = { f, m ->
         MediaUtil.FileProbe(MediaRef("id-${m.id}", f.toURI().toString(), m.kind == FreeKind.VIDEO, if (m.kind == FreeKind.VIDEO) 12_000 else 0, "${m.attribution.provider.label} · ${m.attribution.author}", MediaOrigin.FREE, m.attribution.author, m.attribution))
@@ -54,7 +65,7 @@ class FreeFlowTest {
         AppViewModel.startupChecks = false
         vm = AppViewModel(app)
         net = FakeNet()
-        vm.freeService = FreeMediaService(net) { }
+        vm.freeService = FreeMediaService(net, { }, HttpHead { headSizes(it) })
         vm.freeFetcher = FileFetcher { url, dest, _, cancelled, progress -> fetched += url; fetchBehavior(url, dest, progress, cancelled) }
         vm.freeProbe = { f, m -> probeResult(f, m) }
         File(app.filesDir, "free").deleteRecursively()
@@ -115,6 +126,7 @@ class FreeFlowTest {
     @Test fun bothDownShowsTheWikimediaErrorMessage() {
         net.wikimedia = { throw FreeError(FreeError.Kind.OFFLINE, "인터넷에 연결되지 않았거나 응답이 없습니다.") }
         net.openverse = { throw FreeError(FreeError.Kind.TIMEOUT, "느림") }
+        net.nasa = { throw FreeError(FreeError.Kind.OFFLINE, "x") }; net.met = { throw FreeError(FreeError.Kind.OFFLINE, "x") }   // 전부 실패해야 오류 문구가 뜬다
         search("하늘")
         assertTrue(vm.free.items.isEmpty()); assertEquals("인터넷에 연결되지 않았거나 응답이 없습니다.", vm.free.message)
         assertFalse(vm.free.busy)
@@ -143,7 +155,7 @@ class FreeFlowTest {
         search("바다")
         assertTrue(vm.free.items.isNotEmpty()); assertTrue(vm.free.items.all { it.kind == FreeKind.VIDEO })
         assertEquals(0, net.count("api.openverse.org"))
-        assertTrue(net.urls.first().contains("filetype%3Avideo"))
+        assertTrue(net.urls.any { it.contains("filetype%3Avideo") })
     }
 
     @Test fun switchingKindClearsResults() {
@@ -156,7 +168,7 @@ class FreeFlowTest {
         vm.setFreeKind(FreeKind.VIDEO)
         net.wikimedia = { url -> if (url.contains("gsroffset=")) res("wikimedia_video_sunrise.json") else res("wikimedia_video_sea_free.json") }
         search("바다")
-        val first = vm.free.items; assertEquals(20, vm.free.next)
+        val first = vm.free.items; assertEquals(20, vm.free.next[FreeSource.WIKIMEDIA])
         vm.freeMore(); await("더 보기") { !vm.free.moreBusy }
         assertTrue(vm.free.items.size > first.size)
         assertEquals(first, vm.free.items.take(first.size)); assertEquals(vm.free.items.size, vm.free.items.map { it.id }.distinct().size)

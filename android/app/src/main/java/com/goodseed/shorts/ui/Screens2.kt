@@ -84,6 +84,8 @@ fun MediaScreen(vm: AppViewModel) {
 
             SectionTitle("배경 음악 (선택)")
             BigButton(if (p.music == null) "내 폰에서 음악 고르기" else "다른 음악 고르기", onClick = { pickMusic.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth(), filled = false)
+            Spacer(Modifier.height(8.dp))
+            BigButton("무료 음악 찾기 (키 필요 없음)", onClick = { vm.openMusic() }, modifier = Modifier.fillMaxWidth(), filled = false)
             p.music?.let { m ->
                 Spacer(Modifier.height(8.dp))
                 Text("♪ ${m.label}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)

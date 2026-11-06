@@ -13,6 +13,17 @@ object KoreanTopics {
         "강" to "river", "비" to "rain", "눈" to "snow", "들판" to "meadow",
     )
 
+    /** 명화(메트 미술관) 탭의 주제 버튼. */
+    val MET_CHIPS: List<Pair<String, String>> = listOf(
+        "목자" to "shepherd", "십자가" to "cross", "기도" to "prayer", "천사" to "angel", "성경" to "bible", "풍경" to "landscape",
+    )
+
+    /** 무료 음악 찾기의 주제 버튼(화면에 보이는 이름 → 영어 검색어). */
+    val MUSIC_CHIPS: List<Pair<String, String>> = listOf(
+        "잔잔한 피아노" to "calm piano", "기타" to "acoustic guitar", "현악" to "strings", "자연 소리" to "nature sounds",
+        "찬양 분위기" to "worship", "명상" to "meditation",
+    )
+
     private val EXTRA: Map<String, String> = mapOf(
         "해" to "sun", "태양" to "sun", "달" to "moon", "새벽" to "dawn", "아침" to "morning", "저녁" to "evening", "밤" to "night",
         "호수" to "lake", "물" to "water", "폭포" to "waterfall", "시냇물" to "stream", "해변" to "beach", "바닷가" to "beach", "파도" to "waves",
@@ -23,7 +34,7 @@ object KoreanTopics {
         "새" to "bird", "비둘기" to "dove", "독수리" to "eagle", "양" to "sheep", "목자" to "shepherd", "물고기" to "fish", "사자" to "lion",
         "광야" to "desert", "사막" to "desert", "언덕" to "hills", "골짜기" to "valley", "길" to "path", "다리" to "bridge", "문" to "door", "계단" to "stairs",
         "등대" to "lighthouse", "배" to "boat", "촛불" to "candle", "불" to "fire", "불꽃" to "flame", "별빛" to "starry sky", "은하수" to "milky way",
-        "성경" to "bible", "책" to "book", "기도" to "prayer", "손" to "hands", "아이" to "child", "가족" to "family", "예배" to "worship",
+        "성경" to "bible", "지구" to "earth", "우주" to "space", "행성" to "planet", "은하" to "galaxy", "성운" to "nebula", "화성" to "mars", "목성" to "jupiter", "토성" to "saturn", "로켓" to "rocket", "우주인" to "astronaut", "소리" to "sound", "천사" to "angel", "피아노" to "piano", "잔잔한" to "calm", "기타" to "guitar", "현악" to "strings", "찬양" to "worship", "명상" to "meditation", "음악" to "music", "연주" to "instrumental", "오르간" to "organ", "바이올린" to "violin", "첼로" to "cello", "하프" to "harp", "책" to "book", "기도" to "prayer", "손" to "hands", "아이" to "child", "가족" to "family", "예배" to "worship",
         "평화" to "peaceful nature", "고요" to "calm", "자연" to "nature", "풍경" to "landscape", "도시" to "city", "집" to "house",
         "눈송이" to "snowflakes", "빗방울" to "raindrops", "이슬" to "dew", "서리" to "frost", "얼음" to "ice", "시간" to "time lapse", "타임랩스" to "time lapse",
     )
@@ -95,12 +106,24 @@ object CreditText {
             if (a.sourceUrl.isNotBlank()) sb.append("\n   원본: ${a.sourceUrl}")
             sb.append("\n")
         }
-        sb.append("자료 제공: ").append(u.map { it.provider.label }.distinct().joinToString(", "))
+        val providers = u.map { it.provider }.distinct()
+        sb.append("자료 제공: ").append(providers.joinToString(", ") { it.label })
+        providers.mapNotNull { it.creditLine }.forEach { sb.append("\n").append(it) }
         return sb.toString()
     }
 
     /** 출처 표기가 의무인 자료가 하나라도 있는가(CC BY). */
     fun anyRequired(list: List<Attribution>): Boolean = list.any { it.requiresCredit }
+}
+
+/** 받은 파일의 Content-Type 이 사진·영상·음악일 때만 받는다(오류 페이지(html)·json·xml 을 파일로 저장하지 않도록). */
+object ContentTypes {
+    fun acceptable(contentType: String?): Boolean {
+        val t = contentType.orEmpty().substringBefore(';').trim().lowercase()
+        if (t.isEmpty()) return true            // 서버가 알려 주지 않으면 받은 뒤 파일을 직접 읽어 확인한다
+        return t.startsWith("image/") || t.startsWith("video/") || t.startsWith("audio/") ||
+            t == "application/octet-stream" || t == "binary/octet-stream" || t == "application/ogg"
+    }
 }
 
 /** 받는 중 크기 상한을 지키며 복사한다. 상한을 넘으면 즉시 멈춘다(받은 양을 알려 준다). */

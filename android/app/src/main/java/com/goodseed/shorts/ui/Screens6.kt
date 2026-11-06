@@ -31,6 +31,9 @@ import androidx.compose.ui.window.Dialog
 import com.goodseed.shorts.AppViewModel
 import com.goodseed.shorts.Screen
 import com.goodseed.shorts.logic.CreditText
+import com.goodseed.shorts.logic.FreeSources
+import com.goodseed.shorts.logic.FreeTab
+import com.goodseed.shorts.logic.FreeProvider
 import com.goodseed.shorts.logic.FreeKind
 import com.goodseed.shorts.logic.FreeMedia
 import com.goodseed.shorts.logic.KoreanTopics
@@ -52,9 +55,14 @@ fun FreeFindScreen(vm: AppViewModel) {
                 ChoiceChip("사진", photo, { vm.setFreeKind(FreeKind.PHOTO) }, Modifier.weight(1f))
                 ChoiceChip("영상", !photo, { vm.setFreeKind(FreeKind.VIDEO) }, Modifier.weight(1f))
             }
-            Text("자주 찾는 주제", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+            Text("어디서 찾을까요", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                KoreanTopics.CHIPS.forEach { (ko, _) ->
+                FreeSources.tabsFor(f.kind).forEach { t -> ChoiceChip(t.label, f.tab == t, { vm.setFreeTab(t) }, Modifier.widthIn(min = 72.dp)) }
+            }
+            if (f.tab == FreeTab.ALL || f.tab == FreeTab.NASA) Text("NASA 자료는 NASA 로고·휘장이 들어간 것을 쓰지 말고, NASA 가 보증하는 것처럼 보이게 쓰지 마세요.", fontSize = 15.sp, color = Warn, lineHeight = 21.sp, modifier = Modifier.padding(top = 8.dp))
+            Text(if (f.tab == FreeTab.MET) "명화 주제" else "자주 찾는 주제", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (if (f.tab == FreeTab.MET) KoreanTopics.MET_CHIPS else KoreanTopics.CHIPS).forEach { (ko, _) ->
                     ChoiceChip(ko, f.query == ko, { text = ko; vm.searchFree(ko) }, Modifier.widthIn(min = 72.dp))
                 }
             }
@@ -81,10 +89,11 @@ fun FreeFindScreen(vm: AppViewModel) {
                         if (row.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
-                if (f.next != null) BigButton(if (f.moreBusy) "불러오는 중…" else "더 보기", onClick = { vm.freeMore() }, enabled = !f.moreBusy, modifier = Modifier.fillMaxWidth(), filled = false)
+                if (f.hasMore) BigButton(if (f.moreBusy) "불러오는 중…" else "더 보기", onClick = { vm.freeMore() }, enabled = !f.moreBusy, modifier = Modifier.fillMaxWidth(), filled = false)
             }
             Spacer(Modifier.height(10.dp))
-            Text("자료 제공: 위키미디어 공용(Wikimedia Commons)${if (photo) " · Openverse" else ""}. 저작자는 각 자료의 작가이며, 앱이 작가·이용 조건을 자동으로 기록해 영상 끝 글자와 설명란 문구로 만들어 줍니다.", fontSize = 14.sp, color = Muted, lineHeight = 20.sp)
+            val names = FreeSources.active(f.tab, f.kind).joinToString(" · ") { it.provider.label }
+            Text("자료 제공: $names. 저작자는 각 자료의 작가·기관이며, 앱이 작가·이용 조건을 자동으로 기록해 영상 끝 글자와 설명란 문구로 만들어 줍니다.", fontSize = 14.sp, color = Muted, lineHeight = 20.sp)
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -125,13 +134,14 @@ private fun FreePreviewDialog(vm: AppViewModel, m: FreeMedia) {
                     Text(a.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink, lineHeight = 26.sp, modifier = Modifier.padding(top = 10.dp))
                     Text("작가: ${a.author}", fontSize = 17.sp, color = Ink, modifier = Modifier.padding(top = 4.dp))
                     Text("이용 조건: ${a.licenseLabel}", fontSize = 18.sp, color = AccentDark, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
-                    Text(if (a.requiresCredit) "출처 표기가 필요한 자료입니다. 영상 끝에 작가 이름이 자동으로 들어가고, 설명란용 문구도 복사할 수 있습니다." else "출처 표기 의무가 없는 자료입니다. (그래도 출처를 적어 드립니다.)", fontSize = 15.sp, color = Muted, lineHeight = 21.sp, modifier = Modifier.padding(top = 2.dp))
+                    Text(if (a.requiresCredit) "출처 표기가 필요한 자료입니다. 영상 끝에 작가 이름이 자동으로 들어가고, 설명란용 문구도 복사할 수 있습니다." else if (a.provider == FreeProvider.NASA) "NASA 자료는 공개 도메인이지만 NASA 로고·휘장은 쓰면 안 됩니다. (출처는 'Credit: NASA'로 적어 드립니다.)" else "출처 표기 의무가 없는 자료입니다. (그래도 출처를 적어 드립니다.)", fontSize = 15.sp, color = Muted, lineHeight = 21.sp, modifier = Modifier.padding(top = 2.dp))
                     val info = buildString {
                         append("제공: ${a.provider.label}")
                         if (m.width > 0 && m.height > 0) append(" · ${m.width}x${m.height}")
                         if (m.bytes > 0) append(" · 받는 크기 약 ${SizeCaps.mb(m.bytes)}")
                     }
                     Text(info, fontSize = 15.sp, color = Muted, modifier = Modifier.padding(top = 4.dp))
+                    if (m.collectionUrl.isNotBlank()) Text("영상 길이와 파일 크기는 받을 때 확인합니다(${SizeCaps.mb(SizeCaps.MAX_VIDEO_BYTES)} 이하인 가장 선명한 파일을 받습니다).", fontSize = 14.sp, color = Muted, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
                     if (m.kind == FreeKind.VIDEO && m.mime.contains("webm")) Text("webm 형식 영상입니다. 대부분의 폰에서 되지만, 일부 폰에서는 영상 만들기 단계에서 막힐 수 있습니다(그때는 안내가 나옵니다).", fontSize = 14.sp, color = Muted, lineHeight = 20.sp, modifier = Modifier.padding(top = 4.dp))
                     if (f.message.isNotBlank() && !busy) Text(f.message, fontSize = 16.sp, color = Warn, lineHeight = 22.sp, modifier = Modifier.padding(top = 8.dp))
                 }

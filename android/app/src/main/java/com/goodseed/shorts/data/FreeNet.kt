@@ -1,6 +1,12 @@
 package com.goodseed.shorts.data
 
 import com.goodseed.shorts.logic.BoundedCopy
+import com.goodseed.shorts.logic.MetParser
+import com.goodseed.shorts.logic.MusicPage
+import com.goodseed.shorts.logic.NasaParser
+import com.goodseed.shorts.logic.NasaPick
+import com.goodseed.shorts.logic.OpenverseAudioParser
+import org.json.JSONArray
 import com.goodseed.shorts.logic.Excluded
 import com.goodseed.shorts.logic.FreeKind
 import com.goodseed.shorts.logic.FreeMedia
@@ -51,7 +57,7 @@ class HttpUrlGet(private val userAgent: String, private val connectMs: Int = 10_
  *  - 위키미디어 공용: 사진·영상. 서버·연결 문제는 한 번 더 시도한다.
  *  - Openverse: 사진 보조. 자주 실패하므로 한 번만 시도하고, 실패는 호출한 쪽이 조용히 넘긴다.
  */
-class FreeMediaService(private val http: HttpGet, private val pause: (Long) -> Unit = { Thread.sleep(it) }) {
+class FreeMediaService(private val http: HttpGet, private val pause: (Long) -> Unit = { Thread.sleep(it) }, private val head: HttpHead = HttpHead { -1 }) {
     private fun <T> withRetry(block: () -> T): T {
         try { return block() } catch (e: FreeError) {
             if (!e.retryable) throw e
@@ -65,12 +71,58 @@ class FreeMediaService(private val http: HttpGet, private val pause: (Long) -> U
 
     fun searchOpenverse(terms: String): FreePage = OpenverseParser.parse(http.get(FreeUrls.openverse(terms)))
 
+    /** NASA 이미지·영상 라이브러리(키 불필요). page 는 1부터. 서버·연결 문제는 한 번 더 시도한다. */
+    fun searchNasa(terms: String, kind: FreeKind, page: Int = 1): FreePage =
+        withRetry { NasaParser.parse(http.get(FreeUrls.nasaSearch(terms, kind, page)), kind) }
+
+    /**
+     * 메트로폴리탄 미술관 공개 자료. cursor 는 MetParser.cursor(offset, broad). 검색 한 번 + 작품별 상세(objects/{id}) 확인을 4개씩 동시에 한다.
+     * 상세에서 공개 도메인·그림 주소가 다시 확인되지 않거나 404 인 작품은 조용히 뺀다. 회화만 찾아 한 건도 없으면 모든 분류로 넓혀 찾는다.
+     */
+    fun searchMet(terms: String, cursor: Int = 0): FreePage {
+        val offset = MetParser.offsetOf(cursor); val broad = MetParser.isBroad(cursor)
+        val s = withRetry { MetParser.parseSearch(http.get(FreeUrls.metSearch(terms, offset, broad))) }
+        if (s.ids.isEmpty() && offset == 0 && !broad) return searchMet(terms, MetParser.cursor(0, true))
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        val got: List<FreeMedia?> = try {
+            pool.invokeAll(s.ids.map { id -> java.util.concurrent.Callable { runCatching { MetParser.parseObject(http.get(FreeUrls.metObject(id))) }.getOrNull() } }).map { it.get() }
+        } finally { pool.shutdown() }
+        val next = if (offset + FreeUrls.MET_LIMIT < s.total && s.ids.isNotEmpty()) MetParser.cursor(offset + FreeUrls.MET_LIMIT, broad) else null
+        return FreePage(got.filterNotNull(), next, com.goodseed.shorts.logic.Excluded(other = got.count { it == null }))
+    }
+
+    /** Openverse 음악(배경 음악 찾기). 사진과 같은 서버라 자주 실패한다 — 호출한 쪽이 안내한다. */
+    fun searchMusic(terms: String): MusicPage = withRetry { OpenverseAudioParser.parse(http.get(FreeUrls.openverseAudio(terms))) }
+
+    /** NASA 영상: collection.json 의 mp4 후보를 화질 순서로 보고 크기(HEAD)가 상한 안인 것만 순서대로 돌려준다. 없으면 빈 목록. */
+    fun nasaVideoUrls(m: FreeMedia): List<String> {
+        val text = withRetry { http.get(m.collectionUrl) }
+        val arr = runCatching { JSONArray(text) }.getOrNull() ?: return emptyList()
+        val urls = (0 until arr.length()).map { arr.optString(it) }
+        return NasaPick.choose(NasaPick.rankedMp4(urls), { head.contentLength(it) }, SizeCaps.MAX_VIDEO_BYTES).map { it.first }
+    }
+
     /** 용량 상한을 넘는 위키미디어 사진: 줄인 그림 주소를 묻는다(원본 폭이 3840 이상이면 3840, 아니면 1920 폭). */
     fun resizedPhotoUrls(m: FreeMedia): List<String> {
         val widths = if (m.width >= 3840) listOf(3840, 1920) else listOf(1920)
         return widths.mapNotNull { w ->
             runCatching { withRetry { WikimediaParser.thumbUrlFrom(http.get(FreeUrls.wikimediaThumb(m.resizeTitle, w))) } }.getOrNull()
         }
+    }
+}
+
+/** 파일 크기만 알아본다(HEAD). 모르거나 접근할 수 없으면 -1. 시험에서는 가짜로 바꿔 끼운다. */
+fun interface HttpHead { fun contentLength(url: String): Long }
+
+class HttpUrlHead(private val userAgent: String) : HttpHead {
+    override fun contentLength(url: String): Long {
+        if (!url.startsWith("https://")) return -1
+        val conn = URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = "HEAD"; conn.connectTimeout = 10_000; conn.readTimeout = 15_000
+            conn.setRequestProperty("User-Agent", userAgent)
+            if (conn.responseCode in 200..299) conn.contentLengthLong else -1
+        } catch (e: IOException) { -1 } finally { conn.disconnect() }
     }
 }
 
@@ -97,10 +149,7 @@ class HttpFileFetcher(private val userAgent: String) : FileFetcher {
         try {
             val code = conn.responseCode
             if (code !in 200..299) return FetchResult.Failed(if (code == 429) "요청이 많아 잠시 막혔습니다. 조금 뒤에 다시 해 주세요." else "내려받지 못했습니다(코드 $code).")
-            val type = conn.contentType.orEmpty().lowercase()
-            if (!(type.startsWith("image/") || type.startsWith("video/") || type.startsWith("application/octet-stream") || type.isEmpty())) {
-                return FetchResult.Failed("받은 파일이 사진·영상이 아닙니다.")
-            }
+            if (!com.goodseed.shorts.logic.ContentTypes.acceptable(conn.contentType)) return FetchResult.Failed("받은 파일이 사진·영상·음악이 아닙니다.")
             val total = conn.contentLengthLong
             if (!BoundedCopy.precheck(total, maxBytes)) return FetchResult.TooBig
             var last = -1

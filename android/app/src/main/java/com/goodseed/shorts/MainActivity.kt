@@ -30,6 +30,7 @@ fun AppRoot(vm: AppViewModel) {
         Screen.RECORD -> RecordScreen(vm)
         Screen.ALIGN -> AlignScreen(vm)
         Screen.FREE -> FreeFindScreen(vm)
+        Screen.MUSIC -> MusicFindScreen(vm)
         Screen.MEDIA -> MediaScreen(vm)
         Screen.PREVIEW -> PreviewScreen(vm)
         Screen.EXPORT -> ExportScreen(vm)

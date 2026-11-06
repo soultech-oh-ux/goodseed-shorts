@@ -14,21 +14,22 @@ class RecentStore(private val ctx: Context) {
         val arr = JSONArray(file.readText())
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            RecentWork(o.getString("title"), o.getString("uri"), o.getLong("at"), o.optString("thumb"))
+            val fs = o.optJSONArray("files")
+            RecentWork(o.getString("title"), o.getString("uri"), o.getLong("at"), if (o.isNull("thumb")) "" else o.optString("thumb"),
+                if (o.isNull("pid")) "" else o.optString("pid"), if (fs == null) emptyList() else (0 until fs.length()).map { fs.getString(it) })
         }
     }.getOrDefault(emptyList())
 
-    fun add(w: RecentWork) {
-        val list = (listOf(w) + load().filter { it.uri != w.uri }).take(12)
+    private fun write(list: List<RecentWork>) {
         val arr = JSONArray()
-        list.forEach { arr.put(JSONObject().put("title", it.title).put("uri", it.uri).put("at", it.savedAtMillis).put("thumb", it.thumbPath)) }
+        list.forEach { w ->
+            arr.put(JSONObject().put("title", w.title).put("uri", w.uri).put("at", w.savedAtMillis).put("thumb", w.thumbPath)
+                .put("pid", w.projectId).put("files", JSONArray(w.files)))
+        }
         file.writeText(arr.toString())
     }
 
-    fun remove(uri: String) {
-        val list = load().filter { it.uri != uri }
-        val arr = JSONArray()
-        list.forEach { arr.put(JSONObject().put("title", it.title).put("uri", it.uri).put("at", it.savedAtMillis).put("thumb", it.thumbPath)) }
-        file.writeText(arr.toString())
-    }
+    fun add(w: RecentWork) = write((listOf(w) + load().filter { it.uri != w.uri }).take(12))
+
+    fun remove(uri: String) = write(load().filter { it.uri != uri })
 }

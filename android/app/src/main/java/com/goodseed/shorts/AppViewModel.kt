@@ -27,7 +27,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-enum class Screen { HOME, PASTE, TEMPLATE, VOICE, RECORD, ALIGN, MEDIA, FREE, PREVIEW, EXPORT }
+enum class Screen { HOME, PASTE, TEMPLATE, VOICE, RECORD, ALIGN, MEDIA, FREE, MUSIC, PREVIEW, EXPORT }
 
 enum class Phase { IDLE, NARRATION, RENDER, SAVING, DONE, ERROR }
 
@@ -81,17 +81,33 @@ data class UpdateUi(
 /** 키 없이 무료 사진·영상 찾기 화면의 상태. */
 data class FreeUi(
     val kind: FreeKind = FreeKind.PHOTO,
+    val tab: FreeTab = FreeTab.ALL,
     val query: String = "",              // 마지막으로 찾은 낱말
-    val busy: Boolean = false,           // 첫 검색 중
+    val busy: Boolean = false,           // 아직 어느 출처에서도 답이 오지 않음
     val moreBusy: Boolean = false,       // [더 보기] 중
-    val otherWaiting: Boolean = false,   // 위키미디어 결과는 떴고 Openverse 를 더 기다리는 중
+    val otherWaiting: Boolean = false,   // 일부 출처의 결과는 떴고 다른 출처를 더 기다리는 중
     val searched: Boolean = false,
     val message: String = "",
     val items: List<FreeMedia> = emptyList(),
-    val hidden: Int = 0,                 // 이용 조건·형식·용량 때문에 숨긴 건수
-    val next: Int? = null,               // 위키미디어 다음 쪽(없으면 null)
+    val hidden: Int = 0,                 // 이용 조건·형식·용량 등으로 숨긴 건수
+    val next: Map<FreeSource, Int> = emptyMap(),   // 출처별 다음 쪽 위치(없으면 더 없음)
     val preview: FreeMedia? = null,
     val downloadId: String? = null,      // 받는 중인 자료
+    val percent: Int = 0,
+) {
+    val hasMore: Boolean get() = next.isNotEmpty()
+}
+
+/** 무료 음악 찾기 화면의 상태. */
+data class MusicUi(
+    val query: String = "",
+    val busy: Boolean = false,
+    val searched: Boolean = false,
+    val message: String = "",
+    val items: List<FreeMusic> = emptyList(),
+    val previewId: String? = null,       // 미리 듣는 중(또는 불러오는 중)인 곡
+    val previewLoading: Boolean = false,
+    val downloadId: String? = null,
     val percent: Int = 0,
 )
 
@@ -114,6 +130,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var pexelsKey by mutableStateOf(prefs.getString("pexelsKey", "").orEmpty())
     var pexels by mutableStateOf(PexelsUi())
     var free by mutableStateOf(FreeUi())
+    var music by mutableStateOf(MusicUi())
+    var deleteAsk by mutableStateOf<RecentWork?>(null)          // 지울지 묻는 중인 최근 작품
+    var deleteAlsoGallery by mutableStateOf(false)              // 갤러리에 저장된 영상 파일도 함께 지우기(기본 해제)
+    var homeNotice by mutableStateOf("")                        // 홈의 짧은 알림("지웠습니다.")
+    var pendingGalleryDelete by mutableStateOf<android.content.IntentSender?>(null)   // 갤러리 영상 삭제에 사용자 확인이 필요할 때
     var notice by mutableStateOf<String?>(null)
     var update by mutableStateOf(UpdateUi())
     var whatsNew by mutableStateOf<List<String>?>(null)    // 업데이트 후 첫 실행 안내(없으면 null)
@@ -126,11 +147,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     internal var recorder: VoiceRecorder = AudioRecordRecorder()   // 시험에서 바꿔 끼운다
     private val freeUa = freeUserAgent(BuildConfig.VERSION_NAME)
-    internal var freeService = FreeMediaService(HttpUrlGet(freeUa))     // 시험에서 가짜 인터넷으로 바꿔 끼운다
+    internal var freeService = FreeMediaService(HttpUrlGet(freeUa), head = HttpUrlHead(freeUa))     // 시험에서 가짜 인터넷으로 바꿔 끼운다
     internal var freeFetcher: FileFetcher = HttpFileFetcher(freeUa)
     internal var freeProbe: (File, FreeMedia) -> MediaUtil.FileProbe = { f, m ->
         MediaUtil.probeFile(ctx, f, m.kind == FreeKind.VIDEO, MediaOrigin.FREE, "${m.attribution.provider.label} · ${m.attribution.author}", m.attribution.author, m.attribution)
     }
+    internal var previewPlayer: UrlPreviewPlayer = MediaPlayerPreview()
+    internal var musicProbe: (File, FreeMusic) -> MusicChoice? = { f, m -> MediaUtil.probeAudioFile(ctx, f, m.attribution.title, m.attribution) }
+    internal var galleryDeleter: (Uri) -> GalleryResult = { GalleryDelete.delete(ctx, it) }
+    private var musicJob: Job? = null
+    private var noticeJob: Job? = null
     private var freeJob: Job? = null
     private var freeDlJob: Job? = null
     private val freeCancel = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -230,7 +256,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- 화면 이동 ----------
     fun go(s: Screen) { stopAllSound(); screen = s }
     private fun stopAllSound() {
-        synth.stopPreview(); player.stop()
+        synth.stopPreview(); player.stop(); stopMusicPreview()
         if (rec.recording) { recorder.stop(); recLevel = 0f; rec = rec.copy(recording = false) }   // 녹음 중 화면을 떠나면 그 녹음은 버린다
         if (rec.playing) rec = rec.copy(playing = false)
         align?.let { if (it.playing >= 0) align = it.copy(playing = -1) }
@@ -245,6 +271,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             Screen.VOICE -> Screen.TEMPLATE
             Screen.MEDIA -> Screen.VOICE
             Screen.FREE -> { freeCancel.set(true); free = free.copy(preview = null); Screen.MEDIA }
+            Screen.MUSIC -> { freeCancel.set(true); Screen.MEDIA }
             Screen.PREVIEW -> Screen.MEDIA
             Screen.EXPORT -> if (export.phase == Phase.RENDER || export.phase == Phase.NARRATION || export.phase == Phase.SAVING) Screen.EXPORT else Screen.PREVIEW
             Screen.HOME -> Screen.HOME
@@ -254,7 +281,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** 홈에서 템플릿을 먼저 골랐을 때(또는 마지막으로 쓴 템플릿)부터 시작한다. */
     fun startNew(templateId: String? = null) {
         val t = Templates.byId(templateId ?: lastTemplateId)
-        project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); freeJob?.cancel(); freeDlJob?.cancel(); free = FreeUi(); rec = RecUi(); align = null; voiceImport = ImportUi()
+        project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); freeJob?.cancel(); freeDlJob?.cancel(); free = FreeUi(); musicJob?.cancel(); music = MusicUi(); rec = RecUi(); align = null; voiceImport = ImportUi()
         val keep = project.id
         viewModelScope.launch(Dispatchers.IO) { runCatching { RecordingStore.cleanOld(recRoot, keep, 7L * 86_400_000L) } }   // 7일 넘게 안 쓴 예전 녹음 정리
         viewModelScope.launch(Dispatchers.IO) { runCatching { cleanOldFiles(File(ctx.filesDir, "free"), 7L * 86_400_000L) } }   // 무료 자료로 받은 예전 파일 정리
@@ -502,7 +529,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setFreeKind(k: FreeKind) {
         if (free.downloadId != null || free.kind == k) return
         freeJob?.cancel()
-        free = FreeUi(kind = k)
+        free = FreeUi(kind = k, tab = FreeSources.fixTab(free.tab, k))
+    }
+
+    fun setFreeTab(t: FreeTab) {
+        if (free.downloadId != null || free.tab == t || t !in FreeSources.tabsFor(free.kind)) return
+        freeJob?.cancel()
+        free = FreeUi(kind = free.kind, tab = t)
     }
 
     /** 위키미디어에서 쓸 수 있는 결과가 12개가 되거나 3쪽을 읽을 때까지 이어서 찾는다(이용 조건이 맞지 않는 자료는 서버 쪽에서 먼저 걸러진다). */
@@ -516,45 +549,74 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return FreePage(items, off, hidden)
     }
 
-    private fun mergeFree(a: List<FreeMedia>, b: List<FreeMedia>): List<FreeMedia> = a + b.filter { n -> a.none { it.id == n.id } }
+    /** 출처 하나에 검색을 보낸다. cursor 는 그 출처의 '다음 쪽' 값(처음이면 null). 실패하면 예외. */
+    private fun fetchSource(src: FreeSource, terms: String, kind: FreeKind, cursor: Int?): FreePage = when (src) {
+        FreeSource.WIKIMEDIA -> collectWikimedia(terms, kind, cursor ?: 0)
+        FreeSource.OPENVERSE -> freeService.searchOpenverse(terms)
+        FreeSource.NASA -> freeService.searchNasa(terms, kind, cursor ?: 1)
+        FreeSource.MET -> freeService.searchMet(terms, cursor ?: 0)
+    }
+
+    /** 출처별 도착 결과를 합쳐 화면 상태에 반영한다(출처가 하나씩 도착할 때마다 호출). */
+    private fun publishFree(sources: List<FreeSource>, got: Map<FreeSource, FreePage>, errors: Map<FreeSource, String>, notice: String) {
+        val done = got.size + errors.size
+        val items = FreeMerge.interleave(sources.map { got[it]?.items.orEmpty() })
+        val hid = got.values.sumOf { it.excluded.total }
+        val next = got.mapNotNull { (k, v) -> v.next?.let { k to it } }.toMap()
+        val pending = done < sources.size
+        val err = if (items.isEmpty() && !pending && got.isEmpty()) sources.firstNotNullOfOrNull { errors[it] } else null   // 한 곳이라도 답했으면 '결과 없음', 전부 실패했을 때만 오류 문구
+        free = free.copy(busy = done == 0, otherWaiting = pending && done > 0, items = items, hidden = hid, next = next,
+            message = FreeMessages.search(notice, items.size, hid, err, pending))
+    }
 
     fun searchFree(text: String) {
         val q = text.trim()
         if (q.isEmpty() || free.downloadId != null) return
         freeJob?.cancel()
         val kind = free.kind
+        val sources = FreeSources.active(free.tab, kind)
+        if (sources.isEmpty()) return
         val plan = KoreanTopics.plan(q)
         val notice = KoreanTopics.notice(plan)
-        free = free.copy(query = q, busy = true, moreBusy = false, searched = true, message = "", items = emptyList(), hidden = 0, next = null, preview = null, otherWaiting = kind == FreeKind.PHOTO)
+        free = free.copy(query = q, busy = true, moreBusy = false, searched = true, message = "", items = emptyList(), hidden = 0, next = emptyMap(), preview = null, otherWaiting = false)
         freeJob = viewModelScope.launch {
-            // Openverse(사진 보조)는 느리고 자주 실패하므로 따로 기다린다 — 실패하면 조용히 위키미디어 결과만 보여 준다
-            val ov = if (kind == FreeKind.PHOTO) async(Dispatchers.IO) { runCatching { freeService.searchOpenverse(plan.english) }.getOrNull() } else null
-            val wm = withContext(Dispatchers.IO) { runCatching { collectWikimedia(plan.english, kind, 0) } }
-            val page = wm.getOrNull()
-            val err = wm.exceptionOrNull()?.message
-            free = free.copy(busy = false, otherWaiting = ov != null, items = page?.items.orEmpty(), hidden = page?.excluded?.total ?: 0, next = page?.next,
-                message = FreeMessages.search(notice, page?.items?.size ?: 0, page?.excluded?.total ?: 0, err, ov != null))
-            if (ov != null) {
-                val o = ov.await()
-                val merged = mergeFree(page?.items.orEmpty(), o?.items.orEmpty())
-                val hid = (page?.excluded?.total ?: 0) + (o?.excluded?.total ?: 0)
-                free = free.copy(otherWaiting = false, items = merged, hidden = hid, message = FreeMessages.search(notice, merged.size, hid, if (merged.isEmpty()) err else null, false))
+            val got = LinkedHashMap<FreeSource, FreePage>(); val errors = LinkedHashMap<FreeSource, String>()
+            // 출처마다 따로 동시에 찾는다. 하나가 실패하거나 늦어도 나머지는 도착하는 대로 보여 준다(실패는 조용히 건너뜀).
+            kotlinx.coroutines.coroutineScope {
+                sources.forEach { src ->
+                    launch {
+                        val r = withContext(Dispatchers.IO) { runCatching { fetchSource(src, plan.english, kind, null) } }
+                        r.onSuccess { got[src] = it }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; errors[src] = it.message ?: "검색에 실패했습니다." }
+                        publishFree(sources, got, errors, notice)
+                    }
+                }
             }
         }
     }
 
     fun freeMore() {
-        val n = free.next ?: return
-        if (free.busy || free.moreBusy || free.downloadId != null) return
+        if (free.busy || free.moreBusy || free.downloadId != null || free.next.isEmpty()) return
         val kind = free.kind; val plan = KoreanTopics.plan(free.query)
+        val todo = free.next.toMap()
         freeJob?.cancel()
         free = free.copy(moreBusy = true)
+        val base = free
         freeJob = viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { collectWikimedia(plan.english, kind, n) } }
-            val pg = r.getOrNull()
-            free = if (pg == null) free.copy(moreBusy = false, message = r.exceptionOrNull()?.message ?: "더 불러오지 못했습니다.")
-            else free.copy(moreBusy = false, items = mergeFree(free.items, pg.items), next = pg.next, hidden = free.hidden + pg.excluded.total,
-                message = if (pg.items.isEmpty()) "더 찾을 수 있는 자료가 없습니다." else free.message)
+            val got = LinkedHashMap<FreeSource, FreePage>(); val errors = LinkedHashMap<FreeSource, String>()
+            val order = FreeSources.forKind(kind).filter { it in todo }
+            kotlinx.coroutines.coroutineScope {
+                order.forEach { src ->
+                    launch {
+                        val r = withContext(Dispatchers.IO) { runCatching { fetchSource(src, plan.english, kind, todo[src]) } }
+                        r.onSuccess { got[src] = it }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; errors[src] = it.message ?: "더 불러오지 못했습니다." }
+                        val pending = got.size + errors.size < order.size
+                        val items = base.items + FreeMerge.interleave(order.map { got[it]?.items.orEmpty() }).filter { n -> base.items.none { it.id == n.id } }
+                        free = free.copy(moreBusy = pending, items = items, hidden = base.hidden + got.values.sumOf { it.excluded.total },
+                            next = got.mapNotNull { (k, v) -> v.next?.let { k to it } }.toMap(),
+                            message = if (!pending && items.size == base.items.size) errors.values.firstOrNull() ?: "더 찾을 수 있는 자료가 없습니다." else base.message)
+                    }
+                }
+            }
         }
     }
 
@@ -580,14 +642,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 받을 주소 후보(차례로 시도). 바로 받을 주소가 있으면 그것과 더 작은 대체 주소, 없으면 NASA 영상 목록·위키미디어 줄인 그림에서 묻는다. */
+    private fun downloadUrlsFor(m: FreeMedia): List<String> = when {
+        m.downloadUrl.isNotBlank() -> listOf(m.downloadUrl) + m.altUrls
+        m.collectionUrl.isNotBlank() -> freeService.nasaVideoUrls(m)
+        else -> freeService.resizedPhotoUrls(m)
+    }
+
     /** 받아서 확인한다. 성공하면 (MediaRef, ""), 실패하면 (null, 한국어 안내). 같은 자료를 이미 받아 둔 파일이 있으면 다시 받지 않는다. */
     private fun downloadFree(m: FreeMedia): Pair<MediaRef?, String> {
         val dir = File(ctx.filesDir, "free")
         val dest = File(dir, "${m.fileKey}.${m.fileExt}")
         val cap = SizeCaps.maxFor(m.kind)
         if (!(dest.isFile && dest.length() > 0)) {
-            val urls = if (m.downloadUrl.isNotBlank()) listOf(m.downloadUrl) else freeService.resizedPhotoUrls(m)
-            if (urls.isEmpty()) return null to "줄인 사진 주소를 받지 못했습니다. 인터넷을 확인하거나 다른 자료를 골라 주세요."
+            val urls = runCatching { downloadUrlsFor(m) }.getOrDefault(emptyList())
+            if (urls.isEmpty()) return null to (if (m.collectionUrl.isNotBlank()) "이 영상은 쓸 수 있는 mp4 파일이 없거나 ${SizeCaps.mb(cap)}를 넘습니다. 다른 영상을 골라 주세요." else "받을 주소를 알아내지 못했습니다. 인터넷을 확인하거나 다른 자료를 골라 주세요.")
             var done = false; var msg = ""
             for (u in urls) {
                 when (val f = freeFetcher.fetch(u, dest, cap, { freeCancel.get() }) { p -> free = free.copy(percent = p) }) {
@@ -611,6 +680,127 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun cleanOldFiles(dir: File, olderThanMs: Long) {
         val limit = System.currentTimeMillis() - olderThanMs
         dir.listFiles()?.forEach { if (it.isFile && it.lastModified() < limit) runCatching { it.delete() } }
+    }
+
+    // ---------- 무료 음악 찾기 (Openverse 음악: freesound·jamendo 등) ----------
+    fun openMusic() { go(Screen.MUSIC) }
+
+    fun stopMusicPreview() {
+        previewPlayer.stop()
+        if (music.previewId != null) music = music.copy(previewId = null, previewLoading = false)
+    }
+
+    /** terms 가 주어지면(주제 버튼) 사전을 거치지 않고 그 영어 검색어를 쓴다. */
+    fun searchMusic(text: String, terms: String? = null) {
+        val q = text.trim()
+        if (q.isEmpty() || music.downloadId != null) return
+        musicJob?.cancel(); stopMusicPreview()
+        val plan = terms?.let { KoreanTopics.Plan(it, emptyList(), false) } ?: KoreanTopics.plan(q)
+        val notice = KoreanTopics.notice(plan)
+        music = music.copy(query = q, busy = true, searched = true, message = "", items = emptyList())
+        musicJob = viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { freeService.searchMusic(plan.english) } }
+            val page = r.getOrNull()
+            val err = r.exceptionOrNull()?.message
+            val msg = FreeMessages.search(notice, page?.items?.size ?: 0, page?.excluded?.total ?: 0, err?.let { "음악 서버(Openverse)에서 가져오지 못했습니다. $it 잠시 뒤 다시 해 보세요." }, false)
+            music = music.copy(busy = false, items = page?.items.orEmpty(), message = msg)
+        }
+    }
+
+    /** 미리 듣기(받지 않고 바로 재생). 같은 곡을 다시 누르면 멈춘다. */
+    fun previewMusic(m: FreeMusic) {
+        if (music.previewId == m.id) { stopMusicPreview(); return }
+        previewPlayer.stop()
+        music = music.copy(previewId = m.id, previewLoading = true)
+        previewPlayer.play(m.downloadUrl) { st ->
+            if (music.previewId == m.id) music = when (st) {
+                UrlPreviewPlayer.State.LOADING -> music.copy(previewLoading = true)
+                UrlPreviewPlayer.State.PLAYING -> music.copy(previewLoading = false)
+                UrlPreviewPlayer.State.ENDED -> music.copy(previewId = null, previewLoading = false)
+                UrlPreviewPlayer.State.ERROR -> music.copy(previewId = null, previewLoading = false, message = "이 곡을 재생하지 못했습니다. 인터넷을 확인하거나 다른 곡을 골라 주세요.")
+            }
+        }
+    }
+
+    fun cancelMusicDownload() { freeCancel.set(true) }
+
+    fun addMusic(m: FreeMusic) {
+        if (music.downloadId != null) return
+        stopMusicPreview()
+        freeCancel.set(false)
+        music = music.copy(downloadId = m.id, percent = 0, message = "")
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                val dest = File(File(ctx.filesDir, "free"), "${m.fileKey}.${m.ext}")
+                if (!(dest.isFile && dest.length() > 0)) {
+                    when (val f = freeFetcher.fetch(m.downloadUrl, dest, SizeCaps.MAX_MUSIC_BYTES, { freeCancel.get() }) { p -> music = music.copy(percent = p) }) {
+                        is FetchResult.Ok -> {}
+                        FetchResult.TooBig -> return@withContext null to "용량이 ${SizeCaps.mb(SizeCaps.MAX_MUSIC_BYTES)}를 넘어 받지 않았습니다. 다른 곡을 골라 주세요."
+                        FetchResult.Cancelled -> return@withContext null to "받기를 취소했습니다."
+                        is FetchResult.Failed -> return@withContext null to f.message
+                    }
+                }
+                val c = musicProbe(dest, m)
+                if (c == null) { runCatching { dest.delete() }; null to "받은 음악을 읽지 못했습니다. 다른 곡을 골라 주세요." } else c to ""
+            }
+            val c = r.first
+            if (c != null) {
+                project = project.copy(music = c)
+                music = music.copy(downloadId = null, percent = 0, message = "배경 음악으로 넣었습니다: ${m.attribution.title}")
+            } else music = music.copy(downloadId = null, percent = 0, message = r.second)
+        }
+    }
+
+    // ---------- 최근 작품 삭제 ----------
+    fun askDelete(w: RecentWork) { deleteAsk = w; deleteAlsoGallery = false }
+    fun chooseDeleteAlsoGallery(on: Boolean) { deleteAlsoGallery = on }
+    fun cancelDelete() { deleteAsk = null }
+
+    private fun showHomeNotice(msg: String) {
+        homeNotice = msg
+        noticeJob?.cancel()
+        noticeJob = viewModelScope.launch { delay(4000); if (homeNotice == msg) homeNotice = "" }
+    }
+
+    /** 앱 안(files/) 밖의 경로는 절대 지우지 않는다(저장 파일이 바뀌어 있어도 안전하도록). */
+    private fun insideFiles(f: File): Boolean = runCatching { f.canonicalPath.startsWith(ctx.filesDir.canonicalPath + File.separator) }.getOrDefault(false)
+
+    private fun pathOf(uri: String): String? = Uri.parse(uri).takeIf { it.scheme == "file" }?.path
+
+    /** 목록에서 빼고, 이 작품이 쓴 녹음 폴더·받은 파일(다른 작품이나 지금 만드는 작품이 안 쓰는 것만)·미리보기 그림을 지운다. */
+    private fun removeWorkLocal(w: RecentWork) {
+        recentStore.remove(w.uri)
+        if (w.thumbPath.isNotBlank()) File(w.thumbPath).takeIf { insideFiles(it) }?.delete()
+        val keep = HashSet<String>()
+        project.media.forEach { m -> pathOf(m.uri)?.let { keep += File(it).canonicalPath } }
+        project.music?.let { m -> pathOf(m.uri)?.let { keep += File(it).canonicalPath } }
+        recentStore.load().forEach { o -> o.files.forEach { p -> keep += runCatching { File(p).canonicalPath }.getOrDefault(p) } }
+        w.files.map { File(it) }.filter { insideFiles(it) && runCatching { it.canonicalPath }.getOrNull() !in keep }.forEach { runCatching { it.delete() } }
+        if (w.projectId.matches(Regex("[A-Za-z0-9-]{8,64}")) && w.projectId != project.id) runCatching { File(recRoot, w.projectId).deleteRecursively() }
+    }
+
+    fun confirmDelete() {
+        val w = deleteAsk ?: return
+        val also = deleteAlsoGallery
+        deleteAsk = null; deleteAlsoGallery = false
+        viewModelScope.launch {
+            val g = withContext(Dispatchers.IO) {
+                removeWorkLocal(w)
+                if (also) galleryDeleter(Uri.parse(w.uri)) else null
+            }
+            recents = recentStore.load()
+            when (g) {
+                null, GalleryResult.Deleted, GalleryResult.Missing -> showHomeNotice("지웠습니다.")
+                is GalleryResult.NeedUser -> pendingGalleryDelete = g.sender
+                is GalleryResult.Failed -> showHomeNotice("목록에서는 지웠지만 ${g.message}")
+            }
+        }
+    }
+
+    /** 갤러리 영상 삭제 확인 창을 사용자가 닫은 뒤(허용 = true). */
+    fun onGalleryDeleteResult(ok: Boolean) {
+        pendingGalleryDelete = null
+        showHomeNotice(if (ok) "지웠습니다." else "갤러리의 영상은 그대로 두었습니다. (목록에서만 지웠습니다.)")
     }
 
     fun setShowCredits(on: Boolean) { project = project.copy(showCredits = on) }
@@ -740,7 +930,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val thumb = File(recentStore.thumbDir, UUID.randomUUID().toString() + ".jpg")
             val ref = MediaRef("r", uri.toString(), true, facts.durationMs, name)
             MediaUtil.thumbnail(ctx, ref, 360)?.let { b -> thumb.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
-            recentStore.add(RecentWork(p.title, uri.toString(), System.currentTimeMillis(), thumb.absolutePath))
+            val used = (p.media.map { it.uri } + listOfNotNull(p.music?.uri)).mapNotNull { pathOf(it) }.filter { insideFiles(File(it)) }.distinct()
+            recentStore.add(RecentWork(p.title, uri.toString(), System.currentTimeMillis(), thumb.absolutePath, p.id, used))
         }
         recents = recentStore.load()
         export = ExportUi(Phase.DONE, 100, "저장했습니다.", uri.toString(), p.title)
@@ -749,5 +940,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun sha1(s: String): String = MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    override fun onCleared() { synth.shutdown(); transformer?.cancel(); player.stop(); freeCancel.set(true); if (rec.recording) recorder.stop() }
+    override fun onCleared() { previewPlayer.stop(); synth.shutdown(); transformer?.cancel(); player.stop(); freeCancel.set(true); if (rec.recording) recorder.stop() }
 }

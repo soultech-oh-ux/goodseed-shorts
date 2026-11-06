@@ -34,7 +34,7 @@ data class VoiceChoice(val name: String, val label: String, val needsNetwork: Bo
 
 enum class Speed(val label: String, val rate: Float) { SLOW("느리게", 0.8f), NORMAL("보통", 1.0f) }
 
-data class MusicChoice(val uri: String, val label: String, val durationMs: Long)
+data class MusicChoice(val uri: String, val label: String, val durationMs: Long, val attribution: Attribution? = null)   // 무료 음악 찾기로 받은 곡은 출처 정보가 붙는다
 
 enum class VoiceMode { AI, MINE }
 
@@ -62,7 +62,7 @@ data class Project(
 
     /** 실제로 장면에 쓰이는 자료의 표기 정보(같은 자료는 한 번만). 고르기만 하고 장면에 안 들어간 자료는 뺀다. */
     fun usedAttributions(): List<Attribution> =
-        scenes.mapIndexedNotNull { i, s -> mediaFor(s, i)?.attribution }.distinctBy { it.sourceUrl.ifBlank { it.title + "|" + it.author } }
+        (scenes.mapIndexedNotNull { i, s -> mediaFor(s, i)?.attribution } + listOfNotNull(music?.attribution)).distinctBy { it.sourceUrl.ifBlank { it.title + "|" + it.author } }
 
     val title: String get() = scenes.firstOrNull()?.text?.take(24) ?: "묵상 영상"
 
@@ -75,4 +75,8 @@ data class Project(
 }
 
 /** 최근 작품(갤러리에 저장된 결과). */
-data class RecentWork(val title: String, val uri: String, val savedAtMillis: Long, val thumbPath: String)
+data class RecentWork(
+    val title: String, val uri: String, val savedAtMillis: Long, val thumbPath: String,
+    val projectId: String = "",                 // 이 작품을 만들 때 쓴 녹음 폴더 이름(지울 때 함께 정리)
+    val files: List<String> = emptyList(),       // 이 작품이 쓴 앱 내부 받은 파일(무료 자료·음악)
+)

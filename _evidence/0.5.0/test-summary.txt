@@ -1,0 +1,41 @@
+굿씨드 묵상숏츠 0.5.0 — JVM 유닛테스트 결과 (gradlew :app:testDebugUnitTest, 2026-11-06)
+합계: tests=407 skipped=2 failed=0
+skipped 2건 = FreeLiveTest(0.4.0 실제 인터넷 시험)·FreeLive050Test(0.5.0 실제 인터넷 시험) — 환경변수 GS_LIVE=1 일 때만 실행. 0.5.0 실행 기록은 live-sources.txt
+
+AudioDecoderTest                         tests=  4 skipped=0 failed=0
+BoundaryEditTest                         tests=  6 skipped=0 failed=0
+ContrastTest                             tests=  2 skipped=0 failed=0
+DuckingCurveTest                         tests=  8 skipped=0 failed=0
+DuckingProcessorTest                     tests=  4 skipped=0 failed=0
+Free050FlowTest                          tests= 29 skipped=0 failed=0
+Free050ScreenshotTest                    tests= 29 skipped=0 failed=0
+FreeFlowTest                             tests= 26 skipped=0 failed=0
+FreeLive050Test                          tests=  1 skipped=1 failed=0
+FreeLiveTest                             tests=  1 skipped=1 failed=0
+FreeMediaTest                            tests= 35 skipped=0 failed=0
+FreeScreenshotTest                       tests= 23 skipped=0 failed=0
+FreeSourcesTest                          tests= 29 skipped=0 failed=0
+KenBurnsMathTest                         tests=  4 skipped=0 failed=0
+LoudnessTest                             tests=  7 skipped=0 failed=0
+PaletteContrastTest                      tests=  3 skipped=0 failed=0
+PcmWavTest                               tests=  7 skipped=0 failed=0
+PexelsParserTest                         tests=  2 skipped=0 failed=0
+RecordingStoreTest                       tests=  1 skipped=0 failed=0
+ReleaseFilesTest                         tests=  7 skipped=0 failed=0
+ScreenshotTest                           tests= 49 skipped=0 failed=0
+SemverTest                               tests=  3 skipped=0 failed=0
+SentenceAlignerTest                      tests=  7 skipped=0 failed=0
+SentenceSplitterTest                     tests= 10 skipped=0 failed=0
+SilenceGapsTest                          tests=  3 skipped=0 failed=0
+SilenceTrimTest                          tests=  6 skipped=0 failed=0
+SubtitleWrapperTest                      tests=  8 skipped=0 failed=0
+TemplateDataTest                         tests=  8 skipped=0 failed=0
+TimingRoundingTest                       tests=  1 skipped=0 failed=0
+TimingTest                               tests=  5 skipped=0 failed=0
+UpdateDownloadTest                       tests=  5 skipped=0 failed=0
+UpdateHelpersTest                        tests=  5 skipped=0 failed=0
+UpdatePickTest                           tests= 16 skipped=0 failed=0
+VoiceFlowTest                            tests= 18 skipped=0 failed=0
+VoiceScreenshotTest                      tests= 27 skipped=0 failed=0
+WavInfoTest                              tests=  4 skipped=0 failed=0
+WavPadTest                               tests=  4 skipped=0 failed=0

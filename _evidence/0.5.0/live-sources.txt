@@ -1,0 +1,43 @@
+실측 시각: Fri Nov 06 19:57:20 KST 2026
+User-Agent: GoodseedShorts/0.5.0 (+https://github.com/soultech-oh-ux/goodseed-shorts/releases)
+
+[NASA 사진] '일출' → 'sunrise'
+  21건 (숨김 3: 형식 3·용량 0·저작권표시 0·로고/휘장 0) 다음 쪽=2
+   - Hangar at Sunrise | NASA / Marvin Smith | 공개 도메인 | 3000x2250 | 1.6MB
+   - Creative Photography - Sunrise | NASA/Ben Smegelsky | 공개 도메인 | 1280x1920 | 258KB
+   - Vivaldi: At Sunset and Now at Sunrise | NASA/Johns Hopkins University Applied Physics Laboratory/Carnegie Institution of Washington | 공개 도메인 | 1018x1024 | 149KB
+   - Ice Cold Sunrise on Mars | NASA/JPL-Caltech/University of Arizona/Texas A&M University | 공개 도메인 | 1024x1024 | 24KB
+  받기: Ice Cold Sunrise on Mars → Ok(bytes=25018) · 진행률 100% · 25018B
+  JPEG 머리 해독 1024x1024 (목록 1024x1024)
+
+[NASA 영상] '지구' → 'earth' (사전에 없으면 입력 그대로)
+  24건 (숨김 0)
+   - Earth from Orbit 2013 | NASA / Jefferson Beck, Katrina Jackson | https://images-assets.nasa.gov/video/GSFC_20140421_EarthOrbit_m11525/collection.json
+  mp4 후보(화질 순, 크기가 100MB 이하인 것만): [(medium.mp4, 65068407), (small.mp4, 42550744), (mobile.mp4, 9575575), (preview.mp4, 17867793)]
+  받기(가장 작은 후보 preview.mp4) → Ok(bytes=17867793) · 진행률 100% · 17.0MB · 머리 12바이트 00 00 00 20 66 74 79 70 69 73 6F 6D (mp4 는 4~7번째가 'ftyp' = 66 74 79 70)
+  상한 시험: 가장 선명한 후보를 1000바이트 상한으로 받기 → com.goodseed.shorts.data.FetchResult$TooBig@71454b9d · 남은 파일 false
+
+[명화] '목자' → 'shepherd' (회화만, 공개 도메인·그림 있음)
+  13건 · 상세 확인에서 뺀 작품 3 · 3059ms · 다음 쪽 cursor=16
+   - Shepherd (18th century) | 작가 미상 | 공개 도메인 | https://www.metmuseum.org/art/collection/search/211316
+   - Shepherd (18th century) | 작가 미상 | 공개 도메인 | https://www.metmuseum.org/art/collection/search/931445
+   - Shepherd (18th century) | 작가 미상 | 공개 도메인 | https://www.metmuseum.org/art/collection/search/931446
+   - Shepherd (18th century) | 작가 미상 | 공개 도메인 | https://www.metmuseum.org/art/collection/search/931447
+  원본 그림 DP-41012-037.jpg 크기(HEAD) 1.1MB / 대체(작은 그림) DP-41012-037.jpg
+  받기 → Ok(bytes=1100180) · 41KB · JPEG 해독 497x624
+  (참고) v1.1/objects/{id} → 검색에 실패했습니다(코드 404). / v1/objects/{id} 는 위 상세 확인에 쓰여 성공
+
+[Openverse 사진] 'sunrise'
+  [사진 검색] 시도 1/3 → 성공 (179ms)
+  20건 (숨김 0) 첫 건: Sunrise at Ramp 25 | CapeHatterasNPS | 공개 도메인
+  받기 → Ok(bytes=89092) · 89092B · JPEG (1024, 678)
+
+[Openverse 음악] 'calm piano'
+  [음악 검색] 시도 1/3 → 성공 (69ms)
+  20건 (숨김 0)
+   - Calm Piano Jazz Loop | ispeakwaves | CC BY 4.0 | 0:23 | 549KB | mp3
+   - Calm Piano Melody - Last hope | Robbnix | CC BY 4.0 | 1:24 | 1.9MB | mp3
+   - Soundscape - Last 31 - Cinematic Piano | Tri-Tachyon | CC BY 4.0 | 0:36 | 818KB | mp3
+  받기: PianoMood37.wav → Ok(bytes=114896) · 진행률 100% · 114896B · 머리 4바이트 FF FB 90 64 (mp3 는 49 44 33 'ID3' 또는 FF Fx)
+
+결론: NASA(사진·영상)·메트 미술관은 검색→파싱→받기 통과. Openverse 사진 성공 · 음악 성공

@@ -66,7 +66,7 @@ class FreeScreenshotTest {
         v.project = Project(scenes = v.sentencesOf("주님은 나의 목자시니 부족함이 없으리로다. 그가 나를 푸른 풀밭에 누이시며 쉴 만한 물가로 인도하시는도다.").mapIndexed { i, t -> Scene(i + 1L, t) })
         val items = if (!withItems) emptyList() else if (kind == FreeKind.PHOTO) photos.take(14) else videos.take(10)
         seedThumbs(items)   // ThumbCache 는 40장까지만 담으므로 화면에 쓰는 것만 채운다
-        v.free = FreeUi(kind = kind, query = query, searched = withItems || query.isNotEmpty(), items = items, hidden = if (withItems) 3 else 0, next = if (withItems) 30 else null, message = message, otherWaiting = otherWaiting)
+        v.free = FreeUi(kind = kind, query = query, searched = withItems || query.isNotEmpty(), items = items, hidden = if (withItems) 3 else 0, next = if (withItems) mapOf(FreeSource.WIKIMEDIA to 30) else emptyMap(), message = message, otherWaiting = otherWaiting)
         return v
     }
 
