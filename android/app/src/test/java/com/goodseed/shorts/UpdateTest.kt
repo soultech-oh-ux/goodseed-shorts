@@ -141,11 +141,26 @@ class UpdatePickTest {
     }
 
     @Test fun builtAppVersionMatchesTheReleaseRule() {
-        assertEquals("0.5.0", BuildConfig.VERSION_NAME)
-        assertEquals(5, BuildConfig.VERSION_CODE)
+        assertEquals("0.6.0", BuildConfig.VERSION_NAME)
+        assertEquals(6, BuildConfig.VERSION_CODE)
         val cur = Semver.parse(BuildConfig.VERSION_NAME)!!
-        assertTrue(cur > Semver(0, 4, 0))
-        assertEquals("goodseed-shorts-${cur}.apk", "goodseed-shorts-0.5.0.apk")
+        assertTrue(cur > Semver(0, 5, 0))
+        assertEquals("goodseed-shorts-${cur}.apk", "goodseed-shorts-0.6.0.apk")
+    }
+
+    // 0.6.0: 0.5.0 앱에서 새 버전 안내가 뜨는 조건
+    @Test fun version060IsOfferedTo050ButNotTo060() {
+        val lst = list(rel("v0.4.0"), rel("v0.5.0"), rel("v0.6.0"))
+        val info = UpdatePick.pick(lst, Semver(0, 5, 0))!!
+        assertEquals(Semver(0, 6, 0), info.version); assertEquals("goodseed-shorts-0.6.0.apk", info.apkName)
+        assertNull(UpdatePick.pick(lst, Semver(0, 6, 0)))
+    }
+
+    @Test fun whatsNewFor060() {
+        val n = WhatsNew.notesFor("0.6.0")
+        assertTrue(n.size >= 1); assertTrue(n.any { it.contains("[수정]") && it.contains("최근 작품") }); assertTrue(n.any { it.contains("다시 골라 주세요") })
+        assertTrue(WhatsNew.shouldShow("0.5.0", "0.6.0", true)); assertFalse(WhatsNew.shouldShow("0.6.0", "0.6.0", true))
+        assertEquals("이전 버전 안내는 그대로", 4, WhatsNew.notesFor("0.5.0").size)
     }
 
     @Test fun whatsNewFor050() {

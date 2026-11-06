@@ -36,7 +36,10 @@ import com.goodseed.shorts.data.MediaOrigin
 @Composable
 fun MediaScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
-    val pickPhone = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.PHONE) }
+    val pickPhone = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        uris.forEach { runCatching { ctx.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }   // 가능하면 앱을 다시 켜도 [수정]에서 열 수 있게(폰·버전에 따라 안 될 수 있음)
+        if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.PHONE)
+    }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { runCatching { ctx.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.IMPORTED)

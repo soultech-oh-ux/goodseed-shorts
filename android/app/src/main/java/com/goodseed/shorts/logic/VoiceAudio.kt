@@ -375,11 +375,11 @@ object RecordingStore {
     /** 장면 번호는 글을 다시 나누면 바뀔 수 있으므로 파일 이름에 만든 시각을 넣어 겹치지 않게 한다. */
     fun sceneFile(dir: File, sceneId: Long, stamp: Long = System.currentTimeMillis()): File = File(dir, "s${sceneId}_$stamp.wav")
 
-    /** keepId 가 아닌 프로젝트 폴더 중 마지막 수정이 maxAgeMs 보다 오래된 것을 지운다. 지운 폴더 수. */
-    fun cleanOld(root: File, keepId: String?, maxAgeMs: Long, now: Long = System.currentTimeMillis()): Int {
+    /** keepId·keepIds(최근 작품이 쓰는 폴더 — [수정]으로 다시 열 수 있어야 한다)가 아닌 프로젝트 폴더 중 마지막 수정이 maxAgeMs 보다 오래된 것을 지운다. 지운 폴더 수. */
+    fun cleanOld(root: File, keepId: String?, maxAgeMs: Long, now: Long = System.currentTimeMillis(), keepIds: Set<String> = emptySet()): Int {
         var n = 0
         root.listFiles()?.forEach { d ->
-            if (d.isDirectory && d.name != keepId && now - d.lastModified() > maxAgeMs) { if (d.deleteRecursively()) n++ }
+            if (d.isDirectory && d.name != keepId && d.name !in keepIds && now - d.lastModified() > maxAgeMs) { if (d.deleteRecursively()) n++ }
         }
         return n
     }

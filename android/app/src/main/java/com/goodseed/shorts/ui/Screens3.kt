@@ -53,6 +53,7 @@ fun PreviewScreen(vm: AppViewModel) {
     val tf = remember(p.font) { Fonts.typeface(ctx, p.font) }
 
     StepScaffold(6, "미리보기와 수정", onBack = { vm.back() }, primaryText = "다음: 저장하기", primaryEnabled = p.scenes.isNotEmpty(), onPrimary = { vm.go(Screen.EXPORT) }) {
+        vm.editNotice?.let { Note(it, Warn) }
         if (scene == null) { Note("장면이 없습니다. 이전 단계로 돌아가 글을 넣어 주세요.", Warn); return@StepScaffold }
         val media = p.mediaFor(scene, sel)
         val bg = rememberThumb(media, 720)
@@ -109,7 +110,11 @@ fun PreviewScreen(vm: AppViewModel) {
 @Composable
 private fun SceneEditor(vm: AppViewModel, s: Scene, onClose: () -> Unit) {
     val p = vm.project
-    val pickMore = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.PHONE) }
+    val ctx = LocalContext.current
+    val pickMore = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        uris.forEach { runCatching { ctx.contentResolver.takePersistableUriPermission(it, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        if (uris.isNotEmpty()) vm.addMedia(uris, MediaOrigin.PHONE)
+    }
     var text by remember(s.id) { mutableStateOf(s.text) }
     Dialog(onDismissRequest = onClose) {
         Surface(shape = RoundedCornerShape(20.dp), color = PageBg) {

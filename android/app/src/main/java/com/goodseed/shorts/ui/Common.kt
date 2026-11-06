@@ -116,26 +116,27 @@ private fun StepDots(step: Int, total: Int) {
 }
 
 @Composable
-fun BigButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, filled: Boolean = true, icon: ImageVector? = null) {
+/** compact: 한 줄에 버튼 3개를 놓을 때(360dp 폭) — 좌우 여백과 아이콘 간격만 줄이고 글자 크기·누르는 높이는 그대로. */
+fun BigButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, filled: Boolean = true, icon: ImageVector? = null, compact: Boolean = false) {
     val shape = RoundedCornerShape(20.dp)
     val font = LocalUiFont.current
     if (filled) {
         Row(
             modifier.heightIn(min = 64.dp).clip(shape)
                 .background(if (enabled) AccentBrush else Brush.horizontalGradient(listOf(Color(0xFFB9B5D3), Color(0xFFB9B5D3))))
-                .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+                .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = if (compact) 6.dp else 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (icon != null) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)); Spacer(Modifier.width(8.dp)) }
+            if (icon != null) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(26.dp)); Spacer(Modifier.width(if (compact) 4.dp else 8.dp)) }
             Text(text, fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = font, color = if (enabled) Color.White else Color(0xFF3A384F), textAlign = TextAlign.Center)
         }
     } else {
         Row(
             modifier.heightIn(min = 60.dp).clip(shape).background(CardColor).border(BorderStroke(2.dp, if (enabled) Accent else Color(0xFFB9B5D3)), shape)
-                .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
+                .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = if (compact) 6.dp else 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (icon != null) { Icon(icon, null, tint = AccentDark, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(8.dp)) }
+            if (icon != null) { Icon(icon, null, tint = if (enabled) AccentDark else Muted, modifier = Modifier.size(24.dp)); Spacer(Modifier.width(if (compact) 4.dp else 8.dp)) }
             Text(text, fontSize = 19.sp, color = if (enabled) AccentDark else Muted, fontWeight = FontWeight.Bold, fontFamily = font, textAlign = TextAlign.Center)
         }
     }

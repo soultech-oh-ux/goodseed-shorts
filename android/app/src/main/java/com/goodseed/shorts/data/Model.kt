@@ -79,4 +79,7 @@ data class RecentWork(
     val title: String, val uri: String, val savedAtMillis: Long, val thumbPath: String,
     val projectId: String = "",                 // 이 작품을 만들 때 쓴 녹음 폴더 이름(지울 때 함께 정리)
     val files: List<String> = emptyList(),       // 이 작품이 쓴 앱 내부 받은 파일(무료 자료·음악)
-)
+    val snapshot: String = "",                   // [수정]용 작품 상태 파일 이름(files/projects/ 안). 0.5.0 이전 작품은 빈칸
+) {
+    val editable: Boolean get() = snapshot.isNotBlank()
+}

@@ -133,6 +133,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var music by mutableStateOf(MusicUi())
     var deleteAsk by mutableStateOf<RecentWork?>(null)          // 지울지 묻는 중인 최근 작품
     var deleteAlsoGallery by mutableStateOf(false)              // 갤러리에 저장된 영상 파일도 함께 지우기(기본 해제)
+    var editAsk by mutableStateOf<RecentWork?>(null)            // [수정]을 눌렀을 때 만들던 작품이 사라진다고 묻는 중인 최근 작품
+    var editNotice by mutableStateOf<String?>(null)             // 고치러 열었을 때 열 수 없어 뺀 자료 안내(미리보기 화면에 표시)
+    internal var lastSavedProject: Project? = null              // 마지막으로 영상으로 저장했거나 [수정]으로 연 상태 — 이와 같으면 잃을 작업이 없다
     var homeNotice by mutableStateOf("")                        // 홈의 짧은 알림("지웠습니다.")
     var pendingGalleryDelete by mutableStateOf<android.content.IntentSender?>(null)   // 갤러리 영상 삭제에 사용자 확인이 필요할 때
     var notice by mutableStateOf<String?>(null)
@@ -154,6 +157,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
     internal var previewPlayer: UrlPreviewPlayer = MediaPlayerPreview()
     internal var musicProbe: (File, FreeMusic) -> MusicChoice? = { f, m -> MediaUtil.probeAudioFile(ctx, f, m.attribution.title, m.attribution) }
+    /** 주소(file:// · content://)의 자료를 지금 열 수 있는가. 시험에서 바꿔 끼운다. */
+    internal var uriReadable: (String) -> Boolean = { u ->
+        val uri = Uri.parse(u)
+        if (uri.scheme == "file") uri.path?.let { File(it) }?.let { it.isFile && it.length() > 0 } == true
+        else runCatching { ctx.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false }.getOrDefault(false)
+    }
     internal var galleryDeleter: (Uri) -> GalleryResult = { GalleryDelete.delete(ctx, it) }
     private var musicJob: Job? = null
     private var noticeJob: Job? = null
@@ -282,9 +291,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun startNew(templateId: String? = null) {
         val t = Templates.byId(templateId ?: lastTemplateId)
         project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); freeJob?.cancel(); freeDlJob?.cancel(); free = FreeUi(); musicJob?.cancel(); music = MusicUi(); rec = RecUi(); align = null; voiceImport = ImportUi()
-        val keep = project.id
-        viewModelScope.launch(Dispatchers.IO) { runCatching { RecordingStore.cleanOld(recRoot, keep, 7L * 86_400_000L) } }   // 7일 넘게 안 쓴 예전 녹음 정리
-        viewModelScope.launch(Dispatchers.IO) { runCatching { cleanOldFiles(File(ctx.filesDir, "free"), 7L * 86_400_000L) } }   // 무료 자료로 받은 예전 파일 정리
+        editNotice = null; lastSavedProject = null
+        cleanOldStorage()
         go(Screen.PASTE)
     }
 
@@ -677,9 +685,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return pr.ref to ""
     }
 
-    private fun cleanOldFiles(dir: File, olderThanMs: Long) {
+    private fun cleanOldFiles(dir: File, olderThanMs: Long, keep: Set<String> = emptySet()) {
         val limit = System.currentTimeMillis() - olderThanMs
-        dir.listFiles()?.forEach { if (it.isFile && it.lastModified() < limit) runCatching { it.delete() } }
+        dir.listFiles()?.forEach { if (it.isFile && it.lastModified() < limit && canonical(it) !in keep) runCatching { it.delete() } }
+    }
+
+    private fun canonical(f: File): String = runCatching { f.canonicalPath }.getOrDefault(f.path)
+
+    /** 7일 넘게 안 쓴 예전 녹음·받은 파일을 정리한다. 지금 만드는 작품과 최근 작품(→ [수정]으로 다시 열 수 있다)이 쓰는 것은 남긴다. */
+    private fun cleanOldStorage() {
+        val keepPid = project.id
+        val recs = recentStore.load()
+        val keepPids = recs.map { it.projectId }.filter { it.isNotBlank() }.toSet()
+        val keepFiles = HashSet<String>()
+        recs.forEach { w -> w.files.forEach { keepFiles += canonical(File(it)) } }
+        project.media.forEach { m -> pathOf(m.uri)?.let { keepFiles += canonical(File(it)) } }
+        project.music?.let { m -> pathOf(m.uri)?.let { keepFiles += canonical(File(it)) } }
+        val day7 = 7L * 86_400_000L
+        viewModelScope.launch(Dispatchers.IO) { runCatching { RecordingStore.cleanOld(recRoot, keepPid, day7, keepIds = keepPids) } }
+        viewModelScope.launch(Dispatchers.IO) { runCatching { cleanOldFiles(File(ctx.filesDir, "free"), day7, keepFiles) } }
     }
 
     // ---------- 무료 음악 찾기 (Openverse 음악: freesound·jamendo 등) ----------
@@ -770,13 +794,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** 목록에서 빼고, 이 작품이 쓴 녹음 폴더·받은 파일(다른 작품이나 지금 만드는 작품이 안 쓰는 것만)·미리보기 그림을 지운다. */
     private fun removeWorkLocal(w: RecentWork) {
         recentStore.remove(w.uri)
+        if (w.snapshot.isNotBlank() && recentStore.load().none { it.snapshot == w.snapshot }) recentStore.deleteSnapshot(w.snapshot)
         if (w.thumbPath.isNotBlank()) File(w.thumbPath).takeIf { insideFiles(it) }?.delete()
         val keep = HashSet<String>()
         project.media.forEach { m -> pathOf(m.uri)?.let { keep += File(it).canonicalPath } }
         project.music?.let { m -> pathOf(m.uri)?.let { keep += File(it).canonicalPath } }
         recentStore.load().forEach { o -> o.files.forEach { p -> keep += runCatching { File(p).canonicalPath }.getOrDefault(p) } }
         w.files.map { File(it) }.filter { insideFiles(it) && runCatching { it.canonicalPath }.getOrNull() !in keep }.forEach { runCatching { it.delete() } }
-        if (w.projectId.matches(Regex("[A-Za-z0-9-]{8,64}")) && w.projectId != project.id) runCatching { File(recRoot, w.projectId).deleteRecursively() }
+        // 같은 녹음 폴더(pid)를 지금 만드는 작품이나 다른 최근 작품([수정]으로 다시 만든 것)이 쓰면 지우지 않는다
+        val pidShared = w.projectId == project.id || recentStore.load().any { it.projectId == w.projectId }
+        if (w.projectId.matches(Regex("[A-Za-z0-9-]{8,64}")) && !pidShared) runCatching { File(recRoot, w.projectId).deleteRecursively() }
     }
 
     fun confirmDelete() {
@@ -801,6 +828,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun onGalleryDeleteResult(ok: Boolean) {
         pendingGalleryDelete = null
         showHomeNotice(if (ok) "지웠습니다." else "갤러리의 영상은 그대로 두었습니다. (목록에서만 지웠습니다.)")
+    }
+
+    // ---------- 최근 작품 [수정] ----------
+    private fun hasUnsavedWork(): Boolean = (project.scenes.isNotEmpty() || project.rawText.isNotBlank() || project.media.isNotEmpty()) && project != lastSavedProject
+
+    /** [수정]: 스냅샷이 없는 작품은 안내만, 영상을 만드는 중이면 막고, 만들던 작품이 있으면 사라진다고 먼저 묻는다. */
+    fun askEdit(w: RecentWork) {
+        if (!w.editable) { showHomeNotice("0.6.0부터 만든 작품만 고칠 수 있어요."); return }
+        if (export.phase == Phase.NARRATION || export.phase == Phase.RENDER || export.phase == Phase.SAVING) { showHomeNotice("영상을 만드는 중에는 다른 작품을 열 수 없어요. 끝난 뒤에 눌러 주세요."); return }
+        if (hasUnsavedWork()) editAsk = w else beginEdit(w)
+    }
+    fun confirmEdit() { val w = editAsk ?: return; editAsk = null; beginEdit(w) }
+    fun cancelEdit() { editAsk = null }
+
+    private fun beginEdit(w: RecentWork) {
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) {
+                recentStore.readSnapshot(w.snapshot)?.let { p ->
+                    SnapshotRestore.apply(p, { m -> uriReadable(m.uri) }, { m -> uriReadable(m.uri) }, { f -> File(f).let { it.isFile && it.length() > 44 } })
+                }
+            }
+            if (r == null) { showHomeNotice("이 작품의 저장 정보를 읽지 못해 고칠 수 없어요."); return@launch }
+            freeJob?.cancel(); freeDlJob?.cancel(); musicJob?.cancel(); stopAllSound()
+            project = r.project; lastSavedProject = r.project
+            export = ExportUi(); pexels = PexelsUi(); free = FreeUi(); music = MusicUi(); rec = RecUi(); align = null; voiceImport = ImportUi(); notice = null
+            editNotice = r.notice()
+            loadVoices()
+            cleanOldStorage()
+            go(Screen.PREVIEW)
+        }
     }
 
     fun setShowCredits(on: Boolean) { project = project.copy(showCredits = on) }
@@ -926,16 +983,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val name = "굿씨드묵상숏츠_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.KOREA).format(java.util.Date()) + ".mp4"
         val uri = withContext(Dispatchers.IO) { MediaUtil.saveToGallery(ctx, file, name) }
         if (uri == null) { export = ExportUi(Phase.ERROR, 0, "갤러리에 저장하지 못했습니다. 폰의 저장 공간을 확인해 주세요."); return }
-        withContext(Dispatchers.IO) {
-            val thumb = File(recentStore.thumbDir, UUID.randomUUID().toString() + ".jpg")
-            val ref = MediaRef("r", uri.toString(), true, facts.durationMs, name)
-            MediaUtil.thumbnail(ctx, ref, 360)?.let { b -> thumb.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
-            val used = (p.media.map { it.uri } + listOfNotNull(p.music?.uri)).mapNotNull { pathOf(it) }.filter { insideFiles(File(it)) }.distinct()
-            recentStore.add(RecentWork(p.title, uri.toString(), System.currentTimeMillis(), thumb.absolutePath, p.id, used))
-        }
+        withContext(Dispatchers.IO) { recordRecent(p, uri, facts.durationMs, name) }
+        lastSavedProject = p
         recents = recentStore.load()
         export = ExportUi(Phase.DONE, 100, "저장했습니다.", uri.toString(), p.title)
         outDir.listFiles()?.forEach { runCatching { it.delete() } }
+    }
+
+    /** 저장한 영상을 최근 작품에 올린다: 미리보기 그림 + 쓴 받은 파일 목록 + [수정]용 작품 상태(스냅샷). */
+    internal fun recordRecent(p: Project, uri: Uri, durationMs: Long, name: String) {
+        val thumb = File(recentStore.thumbDir, UUID.randomUUID().toString() + ".jpg")
+        val ref = MediaRef("r", uri.toString(), true, durationMs, name)
+        MediaUtil.thumbnail(ctx, ref, 360)?.let { b -> thumb.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) } }
+        val used = (p.media.map { it.uri } + listOfNotNull(p.music?.uri)).mapNotNull { pathOf(it) }.filter { insideFiles(File(it)) }.distinct()
+        recentStore.add(RecentWork(p.title, uri.toString(), System.currentTimeMillis(), thumb.absolutePath, p.id, used, recentStore.saveSnapshot(p)))
     }
 
     private fun sha1(s: String): String = MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }

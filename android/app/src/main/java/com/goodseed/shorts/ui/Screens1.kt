@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Check
 import com.goodseed.shorts.Screen
@@ -78,7 +79,7 @@ fun HomeScreen(vm: AppViewModel) {
         item { SectionTitle("최근 작품") }
         if (vm.homeNotice.isNotBlank()) item { Text(vm.homeNotice, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Accent, modifier = Modifier.padding(bottom = 8.dp)) }
         if (vm.recents.isEmpty()) item { Note("아직 만든 영상이 없습니다. 위 버튼을 눌러 첫 영상을 만들어 보세요.") }
-        else items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }, onDelete = { vm.askDelete(w) }) }
+        else items(vm.recents, key = { it.uri }) { w -> RecentCard(w, onOpen = { openVideo(ctx, w.uri) }, onShare = { shareVideo(ctx, w.uri, null) }, onDelete = { vm.askDelete(w) }, onEdit = { vm.askEdit(w) }) }
         item {
             Spacer(Modifier.height(8.dp))
             if (!showBanner && u.message.isNotBlank()) Note(u.message, if (u.message.startsWith("새 버전을 확인하지")) Warn else Muted)
@@ -94,6 +95,7 @@ fun HomeScreen(vm: AppViewModel) {
     if (about) AboutDialog { about = false }
     UpdateDialogs(vm)
     vm.deleteAsk?.let { DeleteDialog(vm, it) }
+    vm.editAsk?.let { EditDialog(vm, it) }
     val deleteLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult()) { r -> vm.onGalleryDeleteResult(r.resultCode == android.app.Activity.RESULT_OK) }
     vm.pendingGalleryDelete?.let { sender -> LaunchedEffect(sender) { runCatching { deleteLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(sender).build()) }.onFailure { vm.onGalleryDeleteResult(false) } } }
 }
@@ -126,7 +128,7 @@ private fun AboutDialog(onClose: () -> Unit) {
 }
 
 @Composable
-private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
+private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit) {
     val thumb = remember(w.thumbPath) { runCatching { android.graphics.BitmapFactory.decodeFile(w.thumbPath)?.asImageBitmap() }.getOrNull() }
     SoftCard(Modifier.fillMaxWidth(), onClick = onOpen) {
         Column(Modifier.padding(10.dp)) {
@@ -140,9 +142,30 @@ private fun RecentCard(w: RecentWork, onOpen: () -> Unit, onShare: () -> Unit, o
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                BigButton("공유", onClick = onShare, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Share)
-                BigButton("삭제", onClick = onDelete, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Delete)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BigButton("수정", onClick = onEdit, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Edit, enabled = w.editable, compact = true)
+                BigButton("공유", onClick = onShare, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Share, compact = true)
+                BigButton("삭제", onClick = onDelete, modifier = Modifier.weight(1f), filled = false, icon = Icons.Filled.Delete, compact = true)
+            }
+            if (!w.editable) Text("0.6.0부터 만든 작품만 고칠 수 있어요.", fontSize = 15.sp, color = Muted, lineHeight = 21.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
+}
+
+/** [수정] 확인 창: 지금 만들던 작품이 있으면 그것은 사라진다. */
+@Composable
+fun EditDialog(vm: AppViewModel, w: RecentWork) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = { vm.cancelEdit() }) {
+        Surface(shape = RoundedCornerShape(24.dp), color = PageBg) {
+            Column(Modifier.padding(20.dp)) {
+                Text("이 작품을 고칠까요?", fontSize = 24.sp, fontFamily = LocalUiFont.current, fontWeight = FontWeight.Bold, color = AccentDark)
+                Text("「${w.title}」", fontSize = 18.sp, color = Ink, maxLines = 2, modifier = Modifier.padding(top = 8.dp))
+                Text("지금 만들던 작품은 사라집니다.", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Warn, lineHeight = 26.sp, modifier = Modifier.padding(top = 8.dp))
+                Text("고친 뒤 다시 만들면 새 영상이 최근 작품에 하나 더 생깁니다. 지금 영상은 그대로 남습니다.", fontSize = 16.sp, color = Muted, lineHeight = 22.sp, modifier = Modifier.padding(top = 6.dp))
+                Spacer(Modifier.height(12.dp))
+                BigButton("고치러 가기", onClick = { vm.confirmEdit() }, modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.Edit)
+                Spacer(Modifier.height(8.dp))
+                BigButton("취소", onClick = { vm.cancelEdit() }, modifier = Modifier.fillMaxWidth(), filled = false)
             }
         }
     }
