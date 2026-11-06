@@ -39,6 +39,24 @@ class SubtitleOverlay(cues: List<TimedText>, anchorY: Float = SubtitleLayout.BOT
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = settings
 }
 
+/** 사진·영상 출처 글자 — startUs(마지막 장면이 시작하는 때)부터 영상 끝까지(끝 화면 포함) 같은 글을 보인다. */
+@OptIn(UnstableApi::class)
+class CreditOverlay(private val text: SpannableString, private val startUs: Long, anchorY: Float = CREDIT_ANCHOR_Y) : TextOverlay() {
+    private val blank = SpannableString(" ")
+    private val settings: OverlaySettings = StaticOverlaySettings.Builder()
+        .setOverlayFrameAnchor(0f, 0f)
+        .setBackgroundFrameAnchor(0f, anchorY)
+        .build()
+
+    fun visibleAt(tUs: Long): Boolean = tUs >= startUs
+
+    override fun getText(presentationTimeUs: Long): SpannableString = if (visibleAt(presentationTimeUs)) text else blank
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = settings
+
+    companion object { const val CREDIT_ANCHOR_Y = -0.86f }
+}
+
 /** 제목·출처 줄 — 0 ~ endUs 동안 같은 글을 보이고 그 뒤(끝 화면)에는 보이지 않는다. */
 @OptIn(UnstableApi::class)
 class HeaderOverlay(private val text: SpannableString, private val endUs: Long, anchorY: Float) : TextOverlay() {

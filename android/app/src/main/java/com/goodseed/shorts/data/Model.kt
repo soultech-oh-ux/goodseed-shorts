@@ -1,11 +1,12 @@
 package com.goodseed.shorts.data
 
+import com.goodseed.shorts.logic.Attribution
 import com.goodseed.shorts.render.SubFont
 import com.goodseed.shorts.render.SubSize
 import com.goodseed.shorts.render.Templates
 import com.goodseed.shorts.render.VideoTemplate
 
-enum class MediaOrigin { PHONE, IMPORTED, PEXELS }
+enum class MediaOrigin { PHONE, IMPORTED, PEXELS, FREE }
 
 /** 배경으로 쓸 사진·영상 한 개. uri 는 content:// 또는 file:// 문자열. */
 data class MediaRef(
@@ -16,6 +17,7 @@ data class MediaRef(
     val label: String,
     val origin: MediaOrigin = MediaOrigin.PHONE,
     val credit: String = "",       // 예: Pexels 촬영자
+    val attribution: Attribution? = null,   // 무료 자료(위키미디어·Openverse·Pexels)의 표기 정보
 )
 
 /** 한 장면 = 한 문장 = 자막 한 장 = 낭독 한 구간. */
@@ -51,11 +53,16 @@ data class Project(
     val templateId: String = Templates.DEFAULT.id,
     val headerTitle: String = "",      // 영상에 넣는 제목(선택)
     val headerSource: String = "",     // 출처 줄(선택, 예: 시편 23:1)
+    val showCredits: Boolean = true,   // 영상 끝에 사진·영상 출처 글자를 넣을지
 ) {
     val template: VideoTemplate get() = Templates.byId(templateId)
 
     val recordedCount: Int get() = scenes.count { it.myVoice != null }
     val missingCount: Int get() = scenes.size - recordedCount
+
+    /** 실제로 장면에 쓰이는 자료의 표기 정보(같은 자료는 한 번만). 고르기만 하고 장면에 안 들어간 자료는 뺀다. */
+    fun usedAttributions(): List<Attribution> =
+        scenes.mapIndexedNotNull { i, s -> mediaFor(s, i)?.attribution }.distinctBy { it.sourceUrl.ifBlank { it.title + "|" + it.author } }
 
     val title: String get() = scenes.firstOrNull()?.text?.take(24) ?: "묵상 영상"
 

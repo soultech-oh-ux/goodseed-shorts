@@ -49,6 +49,7 @@ class RenderInput(
     val headerSource: String = "",
     val endCardFile: File? = null,       // 끝 화면 그림(없으면 끝 화면 없음)
     val endCardUs: Long = 0L,
+    val creditText: String = "",         // 사진·영상 출처 글자(마지막 장면부터 끝까지 아래쪽에 작게, 비면 없음)
 )
 
 /**
@@ -79,6 +80,10 @@ object ShortsRenderer {
         val overlays = arrayListOf<androidx.media3.effect.TextOverlay>(SubtitleOverlay(timedTexts, tpl.subtitle.anchorY))
         tpl.header?.let { h ->
             SubtitleLayout.headerSpannable(h, tf, input.headerTitle, input.headerSource)?.let { overlays += HeaderOverlay(it, sceneEndUs, h.anchorY) }
+        }
+
+        if (input.creditText.isNotBlank() && input.times.isNotEmpty()) {
+            SubtitleLayout.creditSpannable(input.creditText, tf)?.let { overlays += CreditOverlay(it, input.times.last().startUs) }
         }
 
         // 영상 줄

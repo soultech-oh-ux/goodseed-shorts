@@ -142,6 +142,23 @@ object SubtitleLayout {
         return s
     }
 
+    /** 사진·영상 출처 글자(마지막 장면 아래쪽에 작게). 비면 null. 최대 4줄. */
+    fun creditSpannable(text: String, typeface: Typeface): SpannableString? {
+        if (text.isBlank()) return null
+        val px = 30f
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.typeface = typeface; textSize = px }
+        val joined = SubtitleWrapper.wrap(text.trim(), FRAME_W - 2 * SIDE_MARGIN) { p.measureText(it) }.take(4).joinToString("\n")
+        val s = SpannableString(joined)
+        val flags = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        s.setSpan(TypefaceSpan(typeface), 0, joined.length, flags)
+        s.setSpan(AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, joined.length, flags)
+        s.setSpan(AbsoluteSizeSpan(px.toInt(), false), 0, joined.length, flags)
+        s.setSpan(ForegroundColorSpan(Color.WHITE), 0, joined.length, flags)
+        s.setSpan(BackgroundColorSpan(0x99000000.toInt()), 0, joined.length, flags)
+        s.setSpan(ShadowStyle(5f, 2f, 0xE6000000.toInt()), 0, joined.length, flags)
+        return s
+    }
+
     /** 제목은 폭을 넘으면 줄바꿈이 필요하므로 미리 맞춘다(한 줄 최대 폭 안에서 SubtitleWrapper 로 나눔). */
     fun fitHeaderText(text: String, typeface: Typeface, px: Float): String {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.typeface = typeface; textSize = px }

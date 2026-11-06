@@ -109,7 +109,7 @@ private fun AboutDialog(onClose: () -> Unit) {
                 Text("굿씨드 묵상숏츠 ${com.goodseed.shorts.BuildConfig.VERSION_NAME}", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = AccentDark)
                 Text("굿씨드AI연구소", fontSize = 17.sp, modifier = Modifier.padding(top = 4.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(top = 8.dp)) {
-                    Text("자막 글꼴은 SIL Open Font License 1.1 로 배포되는 오픈 폰트이며 앱에 포함되어 있습니다. 영상 검색(선택)의 자료는 Pexels 가 제공합니다(Provided by Pexels). 권리를 확인한 자료만 쓰세요.", fontSize = 16.sp, lineHeight = 22.sp)
+                    Text("자막 글꼴은 SIL Open Font License 1.1 로 배포되는 오픈 폰트이며 앱에 포함되어 있습니다. 무료 사진·영상 찾기의 자료는 위키미디어 공용·Openverse 가 제공하며(CC0·공개 도메인·CC BY 만 표시) 작가와 이용 조건을 앱이 기록합니다. Pexels 영상 찾기(선택)의 자료는 Pexels 가 제공합니다(Provided by Pexels). 권리를 확인한 자료만 쓰세요.", fontSize = 16.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(10.dp))
                     Text(licenses, fontSize = 12.sp, lineHeight = 16.sp, color = Muted)
                 }

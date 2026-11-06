@@ -178,6 +178,10 @@ fun ExportScreen(vm: AppViewModel) {
             when (e.phase) {
                 Phase.IDLE -> {
                     if (e.message.isNotBlank()) Note(e.message)
+                    if (p.usedAttributions().isNotEmpty()) {
+                        Note(if (p.showCredits) "무료 사진·영상의 출처 글자가 마지막 장면부터 아래쪽에 작게 들어갑니다. (배경·음악 화면에서 바꿀 수 있습니다)" else "출처 글자는 영상에 넣지 않도록 설정되어 있습니다. 저장한 뒤 [출처 문구 복사]로 설명란에 붙여 넣어 주세요.")
+                        Spacer(Modifier.height(8.dp))
+                    }
                     Note("[영상 만들기 시작]을 누르면 낭독을 만든 뒤 영상을 합칩니다. 장면이 많으면 몇 분 걸릴 수 있습니다. 만드는 동안 이 앱을 켜 두세요.")
                 }
                 Phase.NARRATION, Phase.RENDER, Phase.SAVING -> {
@@ -202,6 +206,12 @@ fun ExportScreen(vm: AppViewModel) {
                     BigButton("다른 앱으로 공유", onClick = { shareVideo(ctx, uri, null) }, modifier = Modifier.fillMaxWidth(), filled = false)
                     Spacer(Modifier.height(10.dp))
                     Note("그 앱이 폰에 없으면 일반 공유창이 열립니다.")
+                    if (p.usedAttributions().isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Note("무료 사진·영상을 썼습니다. 유튜브에 올릴 때 설명란에 출처를 붙여 넣으세요.")
+                        Spacer(Modifier.height(6.dp))
+                        CreditCopyButton(vm, Modifier.fillMaxWidth())
+                    }
                 }
             }
         }

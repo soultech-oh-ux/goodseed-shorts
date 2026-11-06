@@ -1,0 +1,31 @@
+실측 시각: Fri Nov 06 19:15:31 KST 2026
+User-Agent: GoodseedShorts/0.4.0 (+https://github.com/soultech-oh-ux/goodseed-shorts/releases)
+
+[사진] 검색어 '일출' → 'sunrise'
+  위키미디어 사진 30건 (숨김 0: 이용조건 0·형식 0·용량 0) · 3243ms · 다음 쪽=30
+   - Escale à Sète 2022 G | Christian Ferrer | CC BY 4.0 | 6499x4311 | ? | 줄인 그림 받기
+   - Languedoc (frégate), Sète | Christian Ferrer | CC BY 4.0 | 7360x4600 | 17.0MB | 원본 받기
+   - Harbour of Sète at dawn cf01 | Christian Ferrer | CC BY 4.0 | 7028x4393 | ? | 줄인 그림 받기
+   - Sunrise at Sète - December 2021 | Christian Ferrer | CC BY 4.0 | 7109x4443 | ? | 줄인 그림 받기
+   - Lake Baikal, Maloye More Strait at sunrise, Baikal, Russia | Vyacheslav Argenberg | CC BY 4.0 | 4912x3264 | 8.8MB | 원본 받기
+[사진 받기] Sunrise over the clouds → Ok(bytes=24443) · 진행률 마지막=100% · 600ms · 파일 24443B
+  JPEG 머리 해독: 1080x1440 (목록의 1080x1440)
+[큰 사진] Escale à Sète 2022 G 원본 6499x4311 → 줄인 그림 주소 2개: https://thumb.wikimedia.org/wikipedia/commons/thumb/8/83/Escale_%C3%A0_S%C3%A8te_2022_G.jpg/3840px-Escale_%C3%A0_S%C3%A8te_2022_G.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail
+  받기 → Ok(bytes=2567418) · 2567418B
+  JPEG 머리 해독: 3840x2547
+
+[영상] 검색어 '바다' → 'sea'
+  위키미디어 영상 30건 (숨김 0: 이용조건 0·형식 0·용량 0) · 1664ms
+   - Lama bruto na costa di Aruba (Noord) | Ginelly.Q | CC0 1.0 | 23초 1920x1080 | 약 11.3MB | video/webm
+   - The Forgotten Aral – An AI-generated visual history of a vanished sea (2025) | Sora.chatgpt.org, Krea AI, Hailuo AI, Kling AI, ChatGPT Thi… | 공개 도메인 | 98초 1280x718 | 약 19.2MB | video/webm
+   - Aerial Shot Of Sea With Speedboat | bellergy | CC0 1.0 | 14초 1920x1080 | 약 8.1MB | video/webm
+   - Sea snakes and marine turtles observed at the Chesterfield-Bellona reef complex in the Coral Sea Ma… | Dominique Pelletier | CC BY 4.0 | 5초 1920x1080 | 약 1.6MB | video/webm
+   - Sea snakes and marine turtles observed at the Chesterfield-Bellona reef complex in the Coral Sea Ma… | Dominique Pelletier | CC BY 4.0 | 23초 1920x1080 | 약 8.8MB | video/webm
+[영상 받기] Jumping Sea Trout (12초, 목록상 약 863KB) → Ok(bytes=883538) · 진행률 마지막=100% · 1295ms · 파일 883538B(863KB)
+  파일 머리 4바이트 = 1A 45 DF A3 (webm/Matroska 는 1A 45 DF A3)
+[상한 시험] 1000바이트 상한으로 같은 영상 받기 → com.goodseed.shorts.data.FetchResult$TooBig@7adf16aa · 남은 파일 존재=false · .part 존재=false
+
+[Openverse] 사진 'sunrise'
+  실패(앱은 조용히 위키미디어만 보여 준다): 자료 서버가 지금 응답하지 못합니다(코드 504). · 8961ms
+
+결론: 위키미디어 사진·영상 검색→파싱→받기 실측 통과

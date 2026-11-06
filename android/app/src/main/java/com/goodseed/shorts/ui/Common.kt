@@ -191,7 +191,12 @@ fun rememberUrlImage(url: String): ImageBitmap? {
     LaunchedEffect(url) {
         if (bmp == null && url.isNotBlank()) {
             val b = withContext(Dispatchers.IO) {
-                runCatching { android.graphics.BitmapFactory.decodeStream(URL(url).openStream())?.asImageBitmap() }.getOrNull()
+                runCatching {
+                    val c = URL(url).openConnection() as java.net.HttpURLConnection
+                    c.connectTimeout = 10_000; c.readTimeout = 20_000
+                    c.setRequestProperty("User-Agent", com.goodseed.shorts.data.freeUserAgent(com.goodseed.shorts.BuildConfig.VERSION_NAME))   // 위키미디어는 앱 이름이 든 User-Agent 를 요구한다
+                    try { c.inputStream.use { android.graphics.BitmapFactory.decodeStream(it)?.asImageBitmap() } } finally { c.disconnect() }
+                }.getOrNull()
             }
             if (b != null) { ThumbCache.put(url, b); bmp = b }
         }

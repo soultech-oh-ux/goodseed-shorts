@@ -118,12 +118,30 @@ class UpdatePickTest {
         assertNull(UpdatePick.pick(lst, Semver(0, 3, 1)))
     }
 
+    // 0.4.0: 0.3.0 앱에서 새 버전 안내가 뜨는 조건
+    @Test fun version040IsOfferedTo030ButNotTo040() {
+        val lst = list(rel("v0.2.0"), rel("v0.3.0"), rel("v0.4.0"))
+        val info = UpdatePick.pick(lst, Semver(0, 3, 0))!!
+        assertEquals(Semver(0, 4, 0), info.version)
+        assertEquals("goodseed-shorts-0.4.0.apk", info.apkName)
+        assertEquals(Semver(0, 4, 0), UpdatePick.pick(lst, Semver(0, 2, 0))!!.version)
+        assertNull(UpdatePick.pick(lst, Semver(0, 4, 0)))
+        assertNull(UpdatePick.pick(lst, Semver(0, 4, 1)))
+    }
+
     @Test fun builtAppVersionMatchesTheReleaseRule() {
-        assertEquals("0.3.0", BuildConfig.VERSION_NAME)
-        assertEquals(3, BuildConfig.VERSION_CODE)
+        assertEquals("0.4.0", BuildConfig.VERSION_NAME)
+        assertEquals(4, BuildConfig.VERSION_CODE)
         val cur = Semver.parse(BuildConfig.VERSION_NAME)!!
-        assertTrue(cur > Semver(0, 2, 0))
-        assertEquals("goodseed-shorts-${cur}.apk", "goodseed-shorts-0.3.0.apk")
+        assertTrue(cur > Semver(0, 3, 0))
+        assertEquals("goodseed-shorts-${cur}.apk", "goodseed-shorts-0.4.0.apk")
+    }
+
+    @Test fun whatsNewFor040MentionsFreeSearchAndCredits() {
+        val n = WhatsNew.notesFor("0.4.0")
+        assertEquals(4, n.size)
+        assertTrue(n.any { it.contains("API 키 없이") }); assertTrue(n.any { it.contains("출처 문구 복사") }); assertTrue(n.any { it.contains("Pexels") })
+        assertTrue(WhatsNew.shouldShow("0.3.0", "0.4.0", true)); assertFalse(WhatsNew.shouldShow("0.4.0", "0.4.0", true))
     }
 
     @Test fun whatsNewFor030MentionsMyVoice() {

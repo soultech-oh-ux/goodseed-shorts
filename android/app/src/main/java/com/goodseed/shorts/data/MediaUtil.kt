@@ -26,6 +26,25 @@ object MediaUtil {
         return MediaRef(UUID.randomUUID().toString(), uri.toString(), isVideo, dur, displayName(cr, uri) ?: (if (isVideo) "영상" else "사진"), origin, credit)
     }
 
+    /** 앱 안에 받아 둔 사진·영상 파일(file://)을 읽는다. file:// 주소는 ContentResolver 가 종류를 알려 주지 않으므로 종류는 호출한 쪽이 안다.
+     *  못 읽으면 null, 영상을 이 폰이 처리하지 못하면 unsupported 에 안내 문구를 담는다. */
+    class FileProbe(val ref: MediaRef?, val unsupported: String? = null)
+
+    fun probeFile(ctx: Context, file: File, isVideo: Boolean, origin: MediaOrigin, label: String, credit: String = "", attribution: com.goodseed.shorts.logic.Attribution? = null): FileProbe {
+        if (!file.isFile || file.length() <= 0) return FileProbe(null)
+        var dur = 0L
+        if (isVideo) {
+            VideoSupport.problem(file)?.let { return FileProbe(null, it) }
+            dur = durationMs(ctx, Uri.fromFile(file)) ?: return FileProbe(null)
+            if (dur <= 0) return FileProbe(null)
+        } else {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(file.absolutePath, o)
+            if (o.outWidth <= 0 || o.outHeight <= 0) return FileProbe(null)
+        }
+        return FileProbe(MediaRef(UUID.randomUUID().toString(), Uri.fromFile(file).toString(), isVideo, dur, label, origin, credit, attribution))
+    }
+
     fun probeAudio(ctx: Context, uri: Uri): MusicChoice? {
         val mime = ctx.contentResolver.getType(uri).orEmpty()
         if (!mime.startsWith("audio/") && !mime.startsWith("video/")) return null
@@ -105,5 +124,30 @@ object MediaUtil {
             if (rot == 90 || rot == 270) { val t = w; w = h; h = t }
             VideoFacts(w, h, r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
         } catch (e: Exception) { null } finally { runCatching { r.release() } }
+    }
+}
+
+/** 받은 영상을 이 폰이 읽고 풀 수 있는지(webm 의 VP8·VP9 등) 미리 확인한다. */
+object VideoSupport {
+    /** 쓸 수 없으면 한국어 안내 문구, 쓸 수 있으면 null. */
+    fun problem(file: File): String? {
+        val ex = android.media.MediaExtractor()
+        return try {
+            ex.setDataSource(file.absolutePath)
+            var mime: String? = null
+            for (i in 0 until ex.trackCount) {
+                val m = ex.getTrackFormat(i).getString(android.media.MediaFormat.KEY_MIME).orEmpty()
+                if (m.startsWith("video/")) { mime = m; break }
+            }
+            if (mime == null) return "이 파일에서 영상을 찾지 못했습니다. 다른 영상을 골라 주세요."
+            val hasDecoder = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .any { !it.isEncoder && it.supportedTypes.any { t -> t.equals(mime, ignoreCase = true) } }
+            if (!hasDecoder) "이 폰은 이 영상의 형식(${shortName(mime)})을 읽지 못합니다. 다른 영상이나 사진을 골라 주세요." else null
+        } catch (e: Exception) { "이 영상 파일을 열지 못했습니다. 다른 영상을 골라 주세요." } finally { runCatching { ex.release() } }
+    }
+
+    fun shortName(mime: String): String = when (mime.lowercase()) {
+        "video/x-vnd.on2.vp9" -> "VP9"; "video/x-vnd.on2.vp8" -> "VP8"; "video/avc" -> "H.264"; "video/hevc" -> "H.265"; "video/av01" -> "AV1"
+        else -> mime.removePrefix("video/")
     }
 }

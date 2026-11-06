@@ -76,7 +76,11 @@ fun MediaScreen(vm: AppViewModel) {
                 TextButton(onClick = { vm.clearMedia() }, modifier = Modifier.heightIn(min = 56.dp)) { Text("모두 빼기", fontSize = 17.sp) }
             }
 
-            PexelsSection(vm)
+            SectionTitle("무료 사진·영상 찾기 (키 필요 없음)")
+            Note("위키미디어 공용·Openverse 에서 누구나 쓰도록 공개된 사진·영상을 찾아 넣습니다. 작가와 이용 조건은 앱이 자동으로 기록합니다.")
+            Spacer(Modifier.height(6.dp))
+            BigButton("무료 사진·영상 찾기", onClick = { vm.openFree() }, modifier = Modifier.fillMaxWidth())
+            CreditSection(vm)
 
             SectionTitle("배경 음악 (선택)")
             BigButton(if (p.music == null) "내 폰에서 음악 고르기" else "다른 음악 고르기", onClick = { pickMusic.launch(arrayOf("audio/*")) }, modifier = Modifier.fillMaxWidth(), filled = false)
@@ -93,6 +97,8 @@ fun MediaScreen(vm: AppViewModel) {
                 }
                 TextButton(onClick = { vm.clearMusic() }, modifier = Modifier.heightIn(min = 56.dp)) { Text("음악 빼기", fontSize = 17.sp) }
             }
+            SectionTitle("그 밖의 선택 기능")
+            PexelsSection(vm)
             Spacer(Modifier.height(10.dp))
         }
     }
@@ -104,7 +110,7 @@ private fun PexelsSection(vm: AppViewModel) {
     var query by remember { mutableStateOf("") }
     var show by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
-    SectionTitle("무료 영상 찾기 (Pexels · 선택)")
+    Text("Pexels 영상 찾기 (선택 · 내 API 키가 있을 때만)", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = AccentDark, modifier = Modifier.padding(bottom = 4.dp))
     if (vm.pexelsKey.isBlank()) {
         Note("Pexels 사이트에서 무료로 받은 API 키를 넣으면 영상 검색을 쓸 수 있습니다. 키가 없으면 이 기능은 꺼져 있습니다.")
         Spacer(Modifier.height(6.dp))

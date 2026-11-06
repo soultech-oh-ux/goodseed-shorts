@@ -19,6 +19,7 @@ import com.goodseed.shorts.data.UpdateManager
 import com.goodseed.shorts.tts.VoiceSynth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,7 +27,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
-enum class Screen { HOME, PASTE, TEMPLATE, VOICE, RECORD, ALIGN, MEDIA, PREVIEW, EXPORT }
+enum class Screen { HOME, PASTE, TEMPLATE, VOICE, RECORD, ALIGN, MEDIA, FREE, PREVIEW, EXPORT }
 
 enum class Phase { IDLE, NARRATION, RENDER, SAVING, DONE, ERROR }
 
@@ -77,6 +78,23 @@ data class UpdateUi(
     val checking: Boolean = false,
 )
 
+/** 키 없이 무료 사진·영상 찾기 화면의 상태. */
+data class FreeUi(
+    val kind: FreeKind = FreeKind.PHOTO,
+    val query: String = "",              // 마지막으로 찾은 낱말
+    val busy: Boolean = false,           // 첫 검색 중
+    val moreBusy: Boolean = false,       // [더 보기] 중
+    val otherWaiting: Boolean = false,   // 위키미디어 결과는 떴고 Openverse 를 더 기다리는 중
+    val searched: Boolean = false,
+    val message: String = "",
+    val items: List<FreeMedia> = emptyList(),
+    val hidden: Int = 0,                 // 이용 조건·형식·용량 때문에 숨긴 건수
+    val next: Int? = null,               // 위키미디어 다음 쪽(없으면 null)
+    val preview: FreeMedia? = null,
+    val downloadId: String? = null,      // 받는 중인 자료
+    val percent: Int = 0,
+)
+
 data class PexelsUi(val busy: Boolean = false, val message: String = "", val results: List<PexelsVideoItem> = emptyList())
 typealias PexelsVideoItem = PexelsVideo
 
@@ -95,6 +113,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var export by mutableStateOf(ExportUi())
     var pexelsKey by mutableStateOf(prefs.getString("pexelsKey", "").orEmpty())
     var pexels by mutableStateOf(PexelsUi())
+    var free by mutableStateOf(FreeUi())
     var notice by mutableStateOf<String?>(null)
     var update by mutableStateOf(UpdateUi())
     var whatsNew by mutableStateOf<List<String>?>(null)    // 업데이트 후 첫 실행 안내(없으면 null)
@@ -106,6 +125,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var voiceFillAsk by mutableStateOf(false)              // 녹음 안 한 문장을 AI 목소리로 채울지 묻는 창
 
     internal var recorder: VoiceRecorder = AudioRecordRecorder()   // 시험에서 바꿔 끼운다
+    private val freeUa = freeUserAgent(BuildConfig.VERSION_NAME)
+    internal var freeService = FreeMediaService(HttpUrlGet(freeUa))     // 시험에서 가짜 인터넷으로 바꿔 끼운다
+    internal var freeFetcher: FileFetcher = HttpFileFetcher(freeUa)
+    internal var freeProbe: (File, FreeMedia) -> MediaUtil.FileProbe = { f, m ->
+        MediaUtil.probeFile(ctx, f, m.kind == FreeKind.VIDEO, MediaOrigin.FREE, "${m.attribution.provider.label} · ${m.attribution.author}", m.attribution.author, m.attribution)
+    }
+    private var freeJob: Job? = null
+    private var freeDlJob: Job? = null
+    private val freeCancel = java.util.concurrent.atomic.AtomicBoolean(false)
     private val player = PcmPlayer()
     private var recStartNs = 0L
     private val recRoot: File get() = File(ctx.filesDir, "recordings")
@@ -216,6 +244,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             Screen.TEMPLATE -> Screen.PASTE
             Screen.VOICE -> Screen.TEMPLATE
             Screen.MEDIA -> Screen.VOICE
+            Screen.FREE -> { freeCancel.set(true); free = free.copy(preview = null); Screen.MEDIA }
             Screen.PREVIEW -> Screen.MEDIA
             Screen.EXPORT -> if (export.phase == Phase.RENDER || export.phase == Phase.NARRATION || export.phase == Phase.SAVING) Screen.EXPORT else Screen.PREVIEW
             Screen.HOME -> Screen.HOME
@@ -225,9 +254,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** 홈에서 템플릿을 먼저 골랐을 때(또는 마지막으로 쓴 템플릿)부터 시작한다. */
     fun startNew(templateId: String? = null) {
         val t = Templates.byId(templateId ?: lastTemplateId)
-        project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); rec = RecUi(); align = null; voiceImport = ImportUi()
+        project = Project(templateId = t.id, font = t.font); export = ExportUi(); pexels = PexelsUi(); freeJob?.cancel(); freeDlJob?.cancel(); free = FreeUi(); rec = RecUi(); align = null; voiceImport = ImportUi()
         val keep = project.id
         viewModelScope.launch(Dispatchers.IO) { runCatching { RecordingStore.cleanOld(recRoot, keep, 7L * 86_400_000L) } }   // 7일 넘게 안 쓴 예전 녹음 정리
+        viewModelScope.launch(Dispatchers.IO) { runCatching { cleanOldFiles(File(ctx.filesDir, "free"), 7L * 86_400_000L) } }   // 무료 자료로 받은 예전 파일 정리
         go(Screen.PASTE)
     }
 
@@ -453,16 +483,140 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
                     if (!dest.exists() || dest.length() == 0L) PexelsClient(pexelsKey).download(v, dest)
-                    MediaUtil.probe(ctx, dest.toUri(), MediaOrigin.PEXELS, v.photographer)
+                    val att = Attribution("Pexels 영상 ${v.id}", v.photographer.ifBlank { "작가 미상" }, "Pexels 라이선스", "https://www.pexels.com/license/", v.pageUrl, FreeProvider.PEXELS, false)
+                    MediaUtil.probeFile(ctx, dest, true, MediaOrigin.PEXELS, "Pexels · ${v.photographer}", v.photographer, att)
                 }
             }
-            val ref = r.getOrNull()
+            val pr = r.getOrNull()
+            val ref = pr?.ref
             if (ref != null) {
-                project = project.copy(media = project.media + ref.copy(label = "Pexels · ${v.photographer}"))
+                project = project.copy(media = project.media + ref)
                 pexels = pexels.copy(busy = false, message = "추가했습니다.")
-            } else pexels = pexels.copy(busy = false, message = r.exceptionOrNull()?.message ?: "추가하지 못했습니다.")
+            } else pexels = pexels.copy(busy = false, message = r.exceptionOrNull()?.message ?: pr?.unsupported ?: "추가하지 못했습니다.")
         }
     }
+
+    // ---------- 키 없이 무료 사진·영상 찾기 (위키미디어 공용 + Openverse) ----------
+    fun openFree() { go(Screen.FREE) }
+
+    fun setFreeKind(k: FreeKind) {
+        if (free.downloadId != null || free.kind == k) return
+        freeJob?.cancel()
+        free = FreeUi(kind = k)
+    }
+
+    /** 위키미디어에서 쓸 수 있는 결과가 12개가 되거나 3쪽을 읽을 때까지 이어서 찾는다(이용 조건이 맞지 않는 자료는 서버 쪽에서 먼저 걸러진다). */
+    private fun collectWikimedia(terms: String, kind: FreeKind, start: Int): FreePage {
+        val items = ArrayList<FreeMedia>(); var hidden = Excluded(); var off: Int? = start; var pages = 0
+        while (off != null && pages < 3 && items.size < 12) {
+            val pg = freeService.searchWikimedia(terms, kind, off)
+            pg.items.forEach { n -> if (items.none { it.id == n.id }) items += n }
+            hidden += pg.excluded; off = pg.next; pages++
+        }
+        return FreePage(items, off, hidden)
+    }
+
+    private fun mergeFree(a: List<FreeMedia>, b: List<FreeMedia>): List<FreeMedia> = a + b.filter { n -> a.none { it.id == n.id } }
+
+    fun searchFree(text: String) {
+        val q = text.trim()
+        if (q.isEmpty() || free.downloadId != null) return
+        freeJob?.cancel()
+        val kind = free.kind
+        val plan = KoreanTopics.plan(q)
+        val notice = KoreanTopics.notice(plan)
+        free = free.copy(query = q, busy = true, moreBusy = false, searched = true, message = "", items = emptyList(), hidden = 0, next = null, preview = null, otherWaiting = kind == FreeKind.PHOTO)
+        freeJob = viewModelScope.launch {
+            // Openverse(사진 보조)는 느리고 자주 실패하므로 따로 기다린다 — 실패하면 조용히 위키미디어 결과만 보여 준다
+            val ov = if (kind == FreeKind.PHOTO) async(Dispatchers.IO) { runCatching { freeService.searchOpenverse(plan.english) }.getOrNull() } else null
+            val wm = withContext(Dispatchers.IO) { runCatching { collectWikimedia(plan.english, kind, 0) } }
+            val page = wm.getOrNull()
+            val err = wm.exceptionOrNull()?.message
+            free = free.copy(busy = false, otherWaiting = ov != null, items = page?.items.orEmpty(), hidden = page?.excluded?.total ?: 0, next = page?.next,
+                message = FreeMessages.search(notice, page?.items?.size ?: 0, page?.excluded?.total ?: 0, err, ov != null))
+            if (ov != null) {
+                val o = ov.await()
+                val merged = mergeFree(page?.items.orEmpty(), o?.items.orEmpty())
+                val hid = (page?.excluded?.total ?: 0) + (o?.excluded?.total ?: 0)
+                free = free.copy(otherWaiting = false, items = merged, hidden = hid, message = FreeMessages.search(notice, merged.size, hid, if (merged.isEmpty()) err else null, false))
+            }
+        }
+    }
+
+    fun freeMore() {
+        val n = free.next ?: return
+        if (free.busy || free.moreBusy || free.downloadId != null) return
+        val kind = free.kind; val plan = KoreanTopics.plan(free.query)
+        freeJob?.cancel()
+        free = free.copy(moreBusy = true)
+        freeJob = viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { collectWikimedia(plan.english, kind, n) } }
+            val pg = r.getOrNull()
+            free = if (pg == null) free.copy(moreBusy = false, message = r.exceptionOrNull()?.message ?: "더 불러오지 못했습니다.")
+            else free.copy(moreBusy = false, items = mergeFree(free.items, pg.items), next = pg.next, hidden = free.hidden + pg.excluded.total,
+                message = if (pg.items.isEmpty()) "더 찾을 수 있는 자료가 없습니다." else free.message)
+        }
+    }
+
+    fun previewFree(m: FreeMedia?) { free = free.copy(preview = m) }
+
+    /** 이미 이 프로젝트에 넣은 자료인가(같은 원본 페이지). */
+    fun isFreeAdded(m: FreeMedia): Boolean = project.media.any { it.attribution?.sourceUrl == m.attribution.sourceUrl }
+
+    fun cancelFreeDownload() { freeCancel.set(true) }
+
+    fun addFree(m: FreeMedia) {
+        if (free.downloadId != null) return
+        if (isFreeAdded(m)) { free = free.copy(message = "이미 넣은 자료입니다.", preview = null); return }
+        freeCancel.set(false)
+        free = free.copy(downloadId = m.id, percent = 0, message = "")
+        freeDlJob = viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { downloadFree(m) }
+            val ref = r.first
+            if (ref != null) {
+                project = project.copy(media = project.media + ref)
+                free = free.copy(downloadId = null, percent = 0, preview = null, message = "추가했습니다. 아래 [돌아가기]를 누르면 배경 화면에서 확인할 수 있습니다.")
+            } else free = free.copy(downloadId = null, percent = 0, message = r.second)
+        }
+    }
+
+    /** 받아서 확인한다. 성공하면 (MediaRef, ""), 실패하면 (null, 한국어 안내). 같은 자료를 이미 받아 둔 파일이 있으면 다시 받지 않는다. */
+    private fun downloadFree(m: FreeMedia): Pair<MediaRef?, String> {
+        val dir = File(ctx.filesDir, "free")
+        val dest = File(dir, "${m.fileKey}.${m.fileExt}")
+        val cap = SizeCaps.maxFor(m.kind)
+        if (!(dest.isFile && dest.length() > 0)) {
+            val urls = if (m.downloadUrl.isNotBlank()) listOf(m.downloadUrl) else freeService.resizedPhotoUrls(m)
+            if (urls.isEmpty()) return null to "줄인 사진 주소를 받지 못했습니다. 인터넷을 확인하거나 다른 자료를 골라 주세요."
+            var done = false; var msg = ""
+            for (u in urls) {
+                when (val f = freeFetcher.fetch(u, dest, cap, { freeCancel.get() }) { p -> free = free.copy(percent = p) }) {
+                    is FetchResult.Ok -> { done = true }
+                    FetchResult.TooBig -> { msg = "용량이 ${SizeCaps.mb(cap)}를 넘어 받지 않았습니다. 다른 자료를 골라 주세요."; continue }
+                    FetchResult.Cancelled -> return null to "받기를 취소했습니다."
+                    is FetchResult.Failed -> { msg = f.message }
+                }
+                break
+            }
+            if (!done) return null to msg.ifBlank { "내려받지 못했습니다." }
+        }
+        val pr = freeProbe(dest, m)
+        if (pr.ref == null) {
+            runCatching { dest.delete() }
+            return null to (pr.unsupported ?: if (m.kind == FreeKind.VIDEO) "받은 영상을 읽지 못했습니다. 다른 영상을 골라 주세요." else "받은 사진을 읽지 못했습니다. 다른 사진을 골라 주세요.")
+        }
+        return pr.ref to ""
+    }
+
+    private fun cleanOldFiles(dir: File, olderThanMs: Long) {
+        val limit = System.currentTimeMillis() - olderThanMs
+        dir.listFiles()?.forEach { if (it.isFile && it.lastModified() < limit) runCatching { it.delete() } }
+    }
+
+    fun setShowCredits(on: Boolean) { project = project.copy(showCredits = on) }
+
+    /** 유튜브 설명란에 붙여 넣는 출처 문구(장면에 쓰인 무료 자료만). 없으면 "". */
+    fun creditDescription(): String = CreditText.forDescription(project.usedAttributions())
 
     // ---------- ⑤ 수정 ----------
     /** 글을 고치면 그 문장의 내 목소리 녹음은 더 이상 맞지 않으므로 지운다. */
@@ -549,7 +703,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val endFile = if (endTexts != null) withContext(Dispatchers.IO) { FrameComposer.saveEndCard(ctx, tpl, p.font, endTexts.first, endTexts.second, outDir) } else null
         val input = RenderInput(scenes, times, p.font, p.music?.uri, p.music?.durationMs ?: 0L, p.musicVolume,
-            tpl, p.headerTitle, p.headerSource, endFile, endUs)
+            tpl, p.headerTitle, p.headerSource, endFile, endUs,
+            creditText = if (p.showCredits) CreditText.onScreen(p.usedAttributions()) else "")
         val composition = ShortsRenderer.build(ctx, input, ctx.cacheDir)
         val out = File(outDir, "result.mp4")
         export = ExportUi(Phase.RENDER, 0, "영상을 만드는 중입니다. 화면을 켜 둔 채 기다려 주세요.")
@@ -566,7 +721,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         val res = done.await(); poller.cancel(); transformer = null
-        val file = res.getOrElse { export = ExportUi(Phase.ERROR, 0, "영상 합성에 실패했습니다: ${it.message}"); return }
+        val file = res.getOrElse {
+            // 무료로 받은 webm 영상은 폰에 따라 합성 단계에서 막힐 수 있다 — 어떤 자료가 원인일 수 있는지 알려 준다
+            val hint = if (p.media.any { m -> m.isVideo && m.origin == MediaOrigin.FREE && m.uri.endsWith(".webm") }) "\n무료로 받은 webm 영상이 이 폰에서 처리되지 않았을 수 있습니다. 배경에서 그 영상을 빼거나 사진으로 바꿔 다시 해 보세요." else ""
+            export = ExportUi(Phase.ERROR, 0, "영상 합성에 실패했습니다: ${it.message}$hint"); return
+        }
         // 4) 결과 확인 후 갤러리 저장
         export = ExportUi(Phase.SAVING, 100, "갤러리에 저장하는 중…")
         val facts = withContext(Dispatchers.IO) { MediaUtil.videoFacts(file) }
@@ -590,5 +749,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun sha1(s: String): String = MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    override fun onCleared() { synth.shutdown(); transformer?.cancel(); player.stop(); if (rec.recording) recorder.stop() }
+    override fun onCleared() { synth.shutdown(); transformer?.cancel(); player.stop(); freeCancel.set(true); if (rec.recording) recorder.stop() }
 }
